@@ -116,7 +116,7 @@ const firebaseConfig = {
 /* ================================================================ */
 const DAYS=["Domingo","Lunes","Martes","Miércoles","Jueves","Viernes","Sábado"];
 const ORDER=[1,2,3,4,5,6,0];
-const S={db:null,user:null,owner:false,cfg:null,docs:{},tab:"marcar",view:"dia",date:null,week:null,editing:null,selEmp:null,subMonths:"",unsub:null,ready:false};
+const S={devices:{},db:null,user:null,owner:false,cfg:null,docs:{},tab:"marcar",view:"dia",date:null,week:null,editing:null,selEmp:null,subMonths:"",unsub:null,ready:false};
 const pad=n=>String(n).padStart(2,"0");
 const key=d=>d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate());
 const fromKey=k=>{const[y,m,d]=k.split("-").map(Number);return new Date(y,m-1,d)};
@@ -191,6 +191,7 @@ function rMarcar(){
   const list=emps();const c=cfg();
   if(c.lat==null){$("main").innerHTML=`<div class="panel empty">${S.owner?"Primero fija la ubicación del negocio en Ajustes.":"El administrador aún no ha configurado la ubicación del negocio."}</div>`;return}
   if(!list.length){$("main").innerHTML=`<div class="panel empty">${S.owner?"Agrega empleados en la pestaña Empleados.":"Todavía no hay empleados registrados."}</div>`;return}
+  const L0=localDev();if(L0&&list.find(e=>e.id===L0.empId))S.selEmp=L0.empId;
   if(!list.find(e=>e.id===S.selEmp))S.selEmp=null;
   $("main").innerHTML=`<div class="panel stack">
     <div class="clock"><div class="t" id="clk">--:--</div><div class="d" id="dte"></div></div>
@@ -203,39 +204,69 @@ function rMarcar(){
   $("emp").onchange=e=>{S.selEmp=e.target.value||null;try{localStorage.setItem("asis_emp",S.selEmp||"")}catch(_){};updMarcar()};
   $("stamp").onclick=punch;tick();updMarcar();
 }
-function updMarcar(){
+function localDev(){try{return JSON.parse(localStorage.getItem("asis_device")||"null")}catch(e){return null}}
+function setLocalDev(v){try{localStorage.setItem("asis_device",JSON.stringify(v));return localStorage.getItem("asis_device")!==null}catch(e){return false}}
+async function devState(e){const d=S.devices[e.id];const L=localDev();const mine=!!(d&&L&&L.empId===e.id&&await sha(e.id+":"+L.token)===d.hash);return{d,mine,L}}
+async function updMarcar(){
   if(!$("stamp"))return rMarcar();
   const e=emps().find(x=>x.id===S.selEmp);const k=key(new Date());const r=e?rec(e.id,k):null;const b=$("stamp");
-  if(!e){$("tdy").textContent="";b.textContent="Marcar entrada";b.className="stamp";b.disabled=true;return}
+  const set=(t,label,cls,dis,mode)=>{$("tdy").textContent=t;b.textContent=label;b.className=cls;b.disabled=dis;b.dataset.mode=mode||""};
+  if(!e)return set("","Marcar entrada","stamp",true);
+  const {d,mine}=await devState(e);
+  if(!d)return set("Primer uso: registra este celular como tu dispositivo para marcar. Debes estar en el negocio.","Registrar este celular","stamp out",false,"reg");
+  if(!mine)return set(d.approved?`Este no es el celular registrado de ${e.name}. Solo puede marcar desde su propio celular.`:`Ya hay un celular registrado para ${e.name}, pendiente de aprobación. Si es un error, habla con el administrador.`,"Marcar entrada","stamp",true);
+  if(!d.approved)return set("Celular registrado. Falta que el administrador lo apruebe para que puedas marcar.","Esperando aprobación","stamp",true);
   const sch=(e.schedule||{})[new Date().getDay()];
   const hor=sch&&sch.on?`Horario de hoy: ${sch.start} a ${sch.end}`:"Hoy es tu día libre";
-  if(!r||!r.in){$("tdy").textContent=hor;b.textContent="Marcar entrada";b.className="stamp";b.disabled=false}
-  else if(!r.out){$("tdy").textContent=`Entrada marcada a las ${hm(r.in)}. ${hor}`;b.textContent="Marcar salida";b.className="stamp out";b.disabled=false}
-  else{$("tdy").textContent=`Entrada ${hm(r.in)}, salida ${hm(r.out)}`;b.textContent="Jornada completa";b.className="stamp";b.disabled=true}
+  if(!r||!r.in)set(hor,"Marcar entrada","stamp",false,"punch");
+  else if(!r.out)set(`Entrada marcada a las ${hm(r.in)}. ${hor}`,"Marcar salida","stamp out",false,"punch");
+  else set(`Entrada ${hm(r.in)}, salida ${hm(r.out)}`,"Jornada completa","stamp",true);
 }
 function msg(t,cls){const m=$("msg");if(m){m.textContent=t;m.className="msg "+cls}}
+async function checkLoc(){
+  const c=cfg();let pos;try{pos=await getPos()}catch(err){throw new Error(geoErr(err))}
+  const acc=pos.coords.accuracy;const d=dist(pos.coords.latitude,pos.coords.longitude,c.lat,c.lng);
+  if(acc>150)throw new Error(`La señal GPS es imprecisa (±${Math.round(acc)} m). Activa la ubicación precisa y vuelve a intentar.`);
+  if(d>c.radius)throw new Error(`Estás a ${Math.round(d)} m del negocio. Debes estar a menos de ${c.radius} m.`);
+  return{d,acc};
+}
 let busy=false;
 async function punch(){
-  if(busy)return;const e=emps().find(x=>x.id===S.selEmp);const pin=$("pin").value.trim();const c=cfg();
+  if(busy)return;const e=emps().find(x=>x.id===S.selEmp);const pin=$("pin").value.trim();
   if(!e)return msg("Selecciona tu nombre.","bad");
   if(!pin)return msg("Escribe tu PIN.","bad");
   if(await sha(e.id+":"+pin)!==e.pinHash)return msg("PIN incorrecto.","bad");
+  if($("stamp").dataset.mode==="reg")return register(e);
+  const {d:dev,mine}=await devState(e);
+  if(!dev||!mine||!dev.approved)return updMarcar();
   const k=key(new Date());const r=rec(e.id,k);
   const kind=!r||!r.in?"in":!r.out?"out":null;
   if(!kind)return msg("Ya marcaste entrada y salida hoy.","info");
   if(kind==="out"&&!confirm("¿Marcar tu salida ahora?"))return;
   busy=true;$("stamp").disabled=true;msg("Verificando tu ubicación…","info");
   try{
-    let pos;try{pos=await getPos()}catch(err){throw new Error(geoErr(err))}
-    const acc=pos.coords.accuracy;const d=dist(pos.coords.latitude,pos.coords.longitude,c.lat,c.lng);
-    if(acc>150)throw new Error(`La señal GPS es imprecisa (±${Math.round(acc)} m). Activa la ubicación precisa y vuelve a intentar.`);
-    if(d>c.radius)throw new Error(`Estás a ${Math.round(d)} m del negocio. Debes estar a menos de ${c.radius} m para marcar.`);
+    const {d,acc}=await checkLoc();
     const now=Date.now();const mk=k.slice(0,7);const ref=S.db.doc(`punches/${e.id}_${mk}`);
     const snap=await ref.get();const entry={[kind]:now,[kind+"Dist"]:Math.round(d),[kind+"Acc"]:Math.round(acc)};
     if(!snap.exists)await ref.set({empId:e.id,month:mk,days:{[k]:entry}});else await ref.update({["days."+k]:entry});
     $("pin").value="";
     msg(kind==="in"?`Entrada registrada a las ${hm(now)}.`:`Salida registrada a las ${hm(now)}.`,"ok");
   }catch(err){msg(err.message||"No se pudo registrar. Intenta de nuevo.","bad")}
+  finally{busy=false;updMarcar()}
+}
+async function register(e){
+  const L=localDev();
+  if(L&&L.empId!==e.id&&S.devices[L.empId]){const o=(cfg().employees||[]).find(x=>x.id===L.empId);return msg(`Este celular ya está registrado a nombre de ${o?o.name:"otro empleado"}. Cada empleado debe usar su propio celular.`,"bad")}
+  if(!confirm(`¿Registrar este celular como el dispositivo de ${e.name}? Solo podrás marcar desde este celular.`))return;
+  busy=true;$("stamp").disabled=true;msg("Verificando tu ubicación…","info");
+  try{
+    await checkLoc();
+    const token=[...crypto.getRandomValues(new Uint8Array(24))].map(x=>x.toString(16).padStart(2,"0")).join("");
+    if(!setLocalDev({empId:e.id,token}))throw new Error("Este navegador no permite guardar datos (¿modo incógnito?). Ábrelo en modo normal.");
+    const ua=navigator.userAgent;const model=/iPhone/.test(ua)?"iPhone":/Android/.test(ua)?"Android":/Windows/.test(ua)?"Windows":/Mac/.test(ua)?"Mac":"Otro";
+    await S.db.doc("devices/"+e.id).set({hash:await sha(e.id+":"+token),approved:false,createdAt:Date.now(),model});
+    $("pin").value="";msg("Celular registrado. Pídele al administrador que lo apruebe.","ok");
+  }catch(err){msg(err.message||"No se pudo registrar el celular. Intenta de nuevo.","bad")}
   finally{busy=false;updMarcar()}
 }
 function tick(){const c=$("clk");if(!c)return;const n=new Date();c.textContent=pad(n.getHours())+":"+pad(n.getMinutes());$("dte").textContent=fmtLong(key(n))}
@@ -268,7 +299,10 @@ function rPanel(){
       return`<tr><td>${esc(e.name)}</td>${cells}<td>${late}</td><td>${abs}</td><td>${Math.floor(mins/60)}:${pad(mins%60)}</td></tr>`}).join("")}
     </tbody></table><p class="hint">La hora mostrada es la de entrada. Las horas suman solo los días con entrada y salida.</p></div>`;
   }
-  $("main").innerHTML=head+body;
+  const pend=emps().filter(e=>S.devices[e.id]&&!S.devices[e.id].approved);
+  const ban=pend.length?`<div class="panel" style="margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;gap:10px"><span>${pend.length===1?"1 celular espera":pend.length+" celulares esperan"} tu aprobación.</span><button class="btn" id="goemp">Revisar</button></div>`:"";
+  $("main").innerHTML=ban+head+body;
+  if($("goemp"))$("goemp").onclick=()=>{S.tab="empleados";render()};
   $("main").querySelectorAll(".seg button").forEach(b=>b.onclick=()=>{S.view=b.dataset.v;rPanel()});
   $("prev").onclick=()=>{S.view==="dia"?S.date=addDays(S.date,-1):S.week=addDays(S.week,-7);rPanel()};
   $("next").onclick=()=>{S.view==="dia"?S.date=addDays(S.date,1):S.week=addDays(S.week,7);rPanel()};
@@ -282,9 +316,13 @@ function rEmpleados(){
   $("main").innerHTML=`<div class="bar"><strong>${list.length} empleado${list.length===1?"":"s"}</strong><button class="btn" id="add">Agregar empleado</button></div>
   <div class="panel">${list.length?`<ul class="list">${list.map(e=>{const days=ORDER.filter(i=>e.schedule&&e.schedule[i]&&e.schedule[i].on);
     const s=days.length?days.map(i=>DAYS[i].slice(0,3)).join(", ")+` · ${e.schedule[days[0]].start}–${e.schedule[days[0]].end}`:"Sin horario";
-    return`<li><div><div class="nm">${esc(e.name)}${e.active===false?' <span class="pill s-off">Inactivo</span>':""}</div><div class="sub">${esc(e.role||"")}${e.role?" · ":""}${s}</div></div><button class="btn ghost" data-id="${e.id}">Editar</button></li>`}).join("")}</ul>`:`<div class="empty">Agrega a tu primer empleado con su PIN y horario.</div>`}</div>`;
+    const dv=S.devices[e.id];const dt=!dv?'<span class="pill s-off">Sin celular</span>':dv.approved?`<span class="pill s-ok">Celular aprobado (${esc(dv.model||"")})</span>`:`<span class="pill s-late">Celular pendiente (${esc(dv.model||"")})</span>`;
+    const acts=(dv&&!dv.approved?`<button class="btn" data-ap="${e.id}">Aprobar</button>`:"")+(dv?`<button class="btn ghost" data-rs="${e.id}">Reiniciar celular</button>`:"")+`<button class="btn ghost" data-id="${e.id}">Editar</button>`;
+    return`<li style="flex-wrap:wrap"><div><div class="nm">${esc(e.name)}${e.active===false?' <span class="pill s-off">Inactivo</span>':""}</div><div class="sub">${esc(e.role||"")}${e.role?" · ":""}${s}</div><div style="margin-top:4px">${dt}</div></div><div style="display:flex;gap:6px;flex-wrap:wrap">${acts}</div></li>`}).join("")}</ul>`:`<div class="empty">Agrega a tu primer empleado con su PIN y horario.</div>`}</div>`;
   $("add").onclick=()=>{S.editing={id:null};rEditor()};
   $("main").querySelectorAll("[data-id]").forEach(b=>b.onclick=()=>{S.editing={id:b.dataset.id};rEditor()});
+  $("main").querySelectorAll("[data-ap]").forEach(b=>b.onclick=async()=>{b.disabled=true;try{await S.db.doc("devices/"+b.dataset.ap).update({approved:true,approvedAt:Date.now()})}catch(err){alert("No se pudo aprobar. Revisa las reglas de Firestore.");b.disabled=false}});
+  $("main").querySelectorAll("[data-rs]").forEach(b=>b.onclick=async()=>{const e=emps(true).find(x=>x.id===b.dataset.rs);if(!confirm(`¿Reiniciar el celular de ${e?e.name:"este empleado"}? Tendrá que registrar su celular de nuevo.`))return;b.disabled=true;try{await S.db.doc("devices/"+b.dataset.rs).delete()}catch(err){alert("No se pudo reiniciar. Revisa las reglas de Firestore.");b.disabled=false}});
 }
 function rEditor(){
   const e=S.editing.id?cfg().employees.find(x=>x.id===S.editing.id):null;const sch=e&&e.schedule?e.schedule:defSched();
@@ -316,7 +354,7 @@ function rEditor(){
   };
   if(e)$("del").onclick=async()=>{if(!confirm(`¿Eliminar a ${e.name}? Sus marcas anteriores se conservan pero no aparecerá en el panel.`))return;
     const c=JSON.parse(JSON.stringify(cfg()));c.employees=c.employees.filter(x=>x.id!==e.id);
-    try{await saveCfg(c);S.editing=null;rEmpleados()}catch(err){msg("No se pudo eliminar.","bad")}};
+    try{await saveCfg(c);try{await S.db.doc("devices/"+e.id).delete()}catch(_){}S.editing=null;rEmpleados()}catch(err){msg("No se pudo eliminar.","bad")}};
 }
 
 /* ---------- Ajustes ---------- */
@@ -351,6 +389,7 @@ try{
   const db=firebase.firestore();S.db=db;
   let first=true,unsubCfg=null;
   db.doc("cfg/main").onSnapshot(s=>{S.cfg=s.exists?s.data():null;if(first){first=false;S.ready=true;ensureSub();render()}else refresh()},()=>{S.noDb=true;render()});
+  db.collection("devices").onSnapshot(q=>{const o={};q.docs.forEach(d=>o[d.id]=d.data());S.devices=o;if(S.ready)refresh()},()=>{});
   firebase.auth().onAuthStateChanged(u=>{
     const was=S.owner;S.owner=!!u;$("who").textContent=S.owner?"Administrador":"";
     if(S.owner&&!was)S.tab=(S.cfg&&S.cfg.lat!=null)?"panel":"ajustes";
