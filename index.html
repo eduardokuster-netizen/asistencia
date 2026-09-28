@@ -93,6 +93,9 @@ td .dot{display:inline-block;min-width:44px;padding:2px 4px;border-radius:6px;fo
 .sched input[type=time]{padding:8px}
 footer{text-align:center;margin-top:18px}
 footer button{background:none;border:0;color:var(--muted);text-decoration:underline;cursor:pointer;font-size:14px}
+td[data-ed]{cursor:pointer}
+.stats{margin-top:6px}
+.stats h3{font:600 17px "Barlow Semi Condensed",sans-serif;margin:0 0 8px;text-align:center}
 .empty{text-align:center;color:var(--muted);padding:24px 8px}
 </style>
 </head>
@@ -152,6 +155,16 @@ function status(e,k){
   return past?{k:"absent",t:"No ha llegado",r}:{k:"pending",t:"Entra "+sch.start,r};
 }
 
+const hmin=m=>`${Math.floor(m/60)}:${pad(m%60)}`;
+function extraMin(e,k,r){if(!r||!r.in||!r.out)return 0;const sch=(e.schedule||{})[fromKey(k).getDay()];
+  if(!sch||!sch.on)return Math.round((r.out-r.in)/60000);return Math.max(0,minOf(r.out)-toMin(sch.end))}
+function sumRange(e,keys){let late=0,lateMin=0,abs=0,work=0,extra=0,days=0;
+  for(const k of keys){const s=status(e,k);if(s.k==="late"){late++;lateMin+=s.late}if(s.k==="absent")abs++;
+    if(s.r&&s.r.in)days++;if(s.r&&s.r.in&&s.r.out)work+=Math.round((s.r.out-s.r.in)/60000);extra+=extraMin(e,k,s.r)}
+  return{late,lateMin,abs,work,extra,days}}
+function monthKeys(){const t=key(new Date());const ks=[];let k=t.slice(0,8)+"01";while(k<=t){ks.push(k);k=addDays(k,1)}return ks}
+function tsOf(k,h){const d=fromKey(k);const[a,b]=h.split(":").map(Number);d.setHours(a,b,0,0);return d.getTime()}
+
 /* ---------- Tabs ---------- */
 function tabs(){
   const t=[["marcar","Marcar"]];
@@ -173,7 +186,7 @@ function rLogin(){
     <div class="msg info" id="msg"></div><button class="btn" id="l-go">Entrar</button></div>`;
   $("l-go").onclick=async()=>{msg("Entrando…","info");try{await firebase.auth().signInWithEmailAndPassword($("l-em").value.trim(),$("l-pw").value)}catch(e){msg("Correo o contraseña incorrectos.","bad")}};
 }
-$("tabs").onclick=e=>{const b=e.target.closest("button");if(!b)return;S.tab=b.dataset.tab;S.editing=null;render()};
+$("tabs").onclick=e=>{const b=e.target.closest("button");if(!b)return;S.tab=b.dataset.tab;S.editing=null;S.recEdit=null;render()};
 
 function render(){
   tabs();foot();
@@ -182,7 +195,7 @@ function render(){
   ({marcar:rMarcar,panel:rPanel,empleados:rEmpleados,ajustes:rAjustes,login:rLogin})[S.tab]();
 }
 function refresh(){ // tras cambios de datos: no borrar formularios en edición
-  if(S.tab==="marcar")updMarcar();else if(S.tab==="panel")rPanel();else if(S.tab==="empleados"&&!S.editing)rEmpleados();
+  if(S.tab==="marcar")updMarcar();else if(S.tab==="panel"&&!S.recEdit)rPanel();else if(S.tab==="empleados"&&!S.editing)rEmpleados();
   $("biz").textContent=cfg().bizName||"Control de asistencia";
 }
 
@@ -200,6 +213,7 @@ function rMarcar(){
     <div class="today" id="tdy"></div>
     <button class="stamp" id="stamp">Marcar entrada</button>
     <div class="msg info" id="msg" role="status">Debes estar dentro del negocio para marcar.</div>
+    <div class="stats" id="stats"></div>
   </div>`;
   $("emp").onchange=e=>{S.selEmp=e.target.value||null;try{localStorage.setItem("asis_emp",S.selEmp||"")}catch(_){};updMarcar()};
   $("stamp").onclick=punch;tick();updMarcar();
@@ -210,12 +224,16 @@ async function devState(e){const d=S.devices[e.id];const L=localDev();const mine
 async function updMarcar(){
   if(!$("stamp"))return rMarcar();
   const e=emps().find(x=>x.id===S.selEmp);const k=key(new Date());const r=e?rec(e.id,k):null;const b=$("stamp");
+  if($("stats"))$("stats").innerHTML="";
   const set=(t,label,cls,dis,mode)=>{$("tdy").textContent=t;b.textContent=label;b.className=cls;b.disabled=dis;b.dataset.mode=mode||""};
   if(!e)return set("","Marcar entrada","stamp",true);
   const {d,mine}=await devState(e);
   if(!d)return set("Primer uso: registra este celular como tu dispositivo para marcar. Debes estar en el negocio.","Registrar este celular","stamp out",false,"reg");
   if(!mine)return set(d.approved?`Este no es el celular registrado de ${e.name}. Solo puede marcar desde su propio celular.`:`Ya hay un celular registrado para ${e.name}, pendiente de aprobación. Si es un error, habla con el administrador.`,"Marcar entrada","stamp",true);
   if(!d.approved)return set("Celular registrado. Falta que el administrador lo apruebe para que puedas marcar.","Esperando aprobación","stamp",true);
+  const m=sumRange(e,monthKeys());const mes=new Date().toLocaleDateString("es",{month:"long"});
+  $("stats").innerHTML=`<h3>Tu mes de ${mes}</h3><div class="counts"><div class="c-ok"><b>${m.days}</b><span>Días trabajados</span></div><div class="c-late"><b>${m.late}</b><span>Tardanzas</span></div><div class="c-absent"><b>${m.abs}</b><span>Faltas</span></div><div class="c-ok"><b>${hmin(m.extra)}</b><span>Horas extra</span></div></div>
+    <p class="hint" style="text-align:center">Horas trabajadas: ${hmin(m.work)}${m.lateMin?` · Minutos de tardanza: ${m.lateMin}`:""}</p>`;
   const sch=(e.schedule||{})[new Date().getDay()];
   const hor=sch&&sch.on?`Horario de hoy: ${sch.start} a ${sch.end}`:"Hoy es tu día libre";
   if(!r||!r.in)set(hor,"Marcar entrada","stamp",false,"punch");
@@ -248,7 +266,7 @@ async function punch(){
     const {d,acc}=await checkLoc();
     const now=Date.now();const mk=k.slice(0,7);const ref=S.db.doc(`punches/${e.id}_${mk}`);
     const snap=await ref.get();const entry={[kind]:now,[kind+"Dist"]:Math.round(d),[kind+"Acc"]:Math.round(acc)};
-    if(!snap.exists)await ref.set({empId:e.id,month:mk,days:{[k]:entry}});else await ref.update({["days."+k]:entry});
+    if(!snap.exists)await ref.set({empId:e.id,month:mk,days:{[k]:entry}});else{const upd={};for(const f in entry)upd[`days.${k}.${f}`]=entry[f];await ref.update(upd)}
     $("pin").value="";
     msg(kind==="in"?`Entrada registrada a las ${hm(now)}.`:`Salida registrada a las ${hm(now)}.`,"ok");
   }catch(err){msg(err.message||"No se pudo registrar. Intenta de nuevo.","bad")}
@@ -280,7 +298,7 @@ function ensureSub(){
   S.unsub=S.db.collection("punches").where("month","in",[...ms]).onSnapshot(q=>{const o={};q.docs.forEach(d=>o[d.id]=d.data());S.docs=o;refresh()},()=>{});
 }
 function rPanel(){
-  ensureSub();const list=emps();
+  ensureSub();if(S.recEdit)return rRecEdit();const list=emps();
   const head=`<div class="bar"><div class="seg"><button data-v="dia" aria-pressed="${S.view==="dia"}">Día</button><button data-v="semana" aria-pressed="${S.view==="semana"}">Semana</button></div>
   <div class="nav2"><button id="prev" aria-label="Anterior">‹</button><span class="lbl">${S.view==="dia"?fmtLong(S.date):fmtShort(S.week)+" – "+fmtShort(addDays(S.week,6))}</span><button id="next" aria-label="Siguiente">›</button></div></div>`;
   let body="";
@@ -289,23 +307,52 @@ function rPanel(){
     const st=list.map(e=>({e,s:status(e,S.date)}));const cnt=k=>st.filter(x=>x.s.k===k).length;
     const order={absent:0,late:1,pending:2,ok:3,extra:4,off:5,future:6};st.sort((a,b)=>order[a.s.k]-order[b.s.k]);
     body=`<div class="counts"><div class="c-ok"><b>${cnt("ok")+cnt("late")+cnt("extra")}</b><span>Llegaron</span></div><div class="c-late"><b>${cnt("late")}</b><span>Tarde</span></div><div class="c-absent"><b>${cnt("absent")}</b><span>No llegaron</span></div><div class="c-pending"><b>${cnt("pending")}</b><span>Por llegar</span></div></div>
-    <div class="panel"><ul class="list">${st.map(({e,s})=>{const r=s.r;const t=r&&r.in?`Entrada ${hm(r.in)} (${r.inDist} m)`+(r.out?` · Salida ${hm(r.out)}`:""):"Sin marcas";
-      return`<li><div><div class="nm">${esc(e.name)}</div><div class="sub">${t}</div></div><span class="pill s-${s.k}">${s.t}</span></li>`}).join("")}</ul></div>`;
+    <div class="panel"><ul class="list">${st.map(({e,s})=>{const r=s.r;const t=r&&(r.in||r.out)?(r.in?`Entrada ${hm(r.in)}`+(r.inDist!=null?` (${r.inDist} m)`:""):"Sin entrada")+(r.out?` · Salida ${hm(r.out)}`:"")+(r.manual?" · Manual":""):"Sin marcas";
+      return`<li><div><div class="nm">${esc(e.name)}</div><div class="sub">${t}</div></div><div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;justify-content:flex-end"><span class="pill s-${s.k}">${s.t}</span><button class="btn ghost" data-ed="${e.id}" data-k="${S.date}">${r?"Editar":"Agregar"}</button></div></li>`}).join("")}</ul></div>`;
   }else{
     const days=[...Array(7)].map((_,i)=>addDays(S.week,i));
-    body=`<div class="panel scroll"><table><thead><tr><th>Empleado</th>${days.map(k=>`<th>${DAYS[fromKey(k).getDay()].slice(0,3)} ${fromKey(k).getDate()}</th>`).join("")}<th>Tarde</th><th>Faltas</th><th>Horas</th></tr></thead><tbody>
-    ${list.map(e=>{let late=0,abs=0,mins=0;const cells=days.map(k=>{const s=status(e,k);if(s.k==="late")late++;if(s.k==="absent")abs++;if(s.r&&s.r.in&&s.r.out)mins+=Math.round((s.r.out-s.r.in)/60000);
-      const txt=s.r&&s.r.in?hm(s.r.in):s.k==="absent"?"Falta":s.k==="off"?"Libre":"—";return`<td><span class="dot s-${s.k}" title="${s.t}">${txt}</span></td>`}).join("");
-      return`<tr><td>${esc(e.name)}</td>${cells}<td>${late}</td><td>${abs}</td><td>${Math.floor(mins/60)}:${pad(mins%60)}</td></tr>`}).join("")}
-    </tbody></table><p class="hint">La hora mostrada es la de entrada. Las horas suman solo los días con entrada y salida.</p></div>`;
+    body=`<div class="panel scroll"><table><thead><tr><th>Empleado</th>${days.map(k=>`<th>${DAYS[fromKey(k).getDay()].slice(0,3)} ${fromKey(k).getDate()}</th>`).join("")}<th>Tarde</th><th>Faltas</th><th>Horas</th><th>Extra</th></tr></thead><tbody>
+    ${list.map(e=>{const ext=sumRange(e,days).extra;let late=0,abs=0,mins=0;const cells=days.map(k=>{const s=status(e,k);if(s.k==="late")late++;if(s.k==="absent")abs++;if(s.r&&s.r.in&&s.r.out)mins+=Math.round((s.r.out-s.r.in)/60000);
+      const txt=s.r&&s.r.in?hm(s.r.in):s.k==="absent"?"Falta":s.k==="off"?"Libre":"—";return`<td data-ed="${e.id}" data-k="${k}" title="Toca para editar"><span class="dot s-${s.k}">${txt}</span></td>`}).join("");
+      return`<tr><td>${esc(e.name)}</td>${cells}<td>${late}</td><td>${abs}</td><td>${Math.floor(mins/60)}:${pad(mins%60)}</td><td>${hmin(ext)}</td></tr>`}).join("")}
+    </tbody></table><p class="hint">La hora mostrada es la de entrada; toca una celda para editar ese día. Las horas suman solo los días con entrada y salida. Horas extra: tiempo después de la hora de salida, o el día completo si era día libre.</p></div>`;
   }
   const pend=emps().filter(e=>S.devices[e.id]&&!S.devices[e.id].approved);
   const ban=pend.length?`<div class="panel" style="margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;gap:10px"><span>${pend.length===1?"1 celular espera":pend.length+" celulares esperan"} tu aprobación.</span><button class="btn" id="goemp">Revisar</button></div>`:"";
   $("main").innerHTML=ban+head+body;
   if($("goemp"))$("goemp").onclick=()=>{S.tab="empleados";render()};
+  $("main").querySelectorAll("[data-ed]").forEach(el=>el.onclick=()=>{S.recEdit={id:el.dataset.ed,k:el.dataset.k};rPanel()});
   $("main").querySelectorAll(".seg button").forEach(b=>b.onclick=()=>{S.view=b.dataset.v;rPanel()});
   $("prev").onclick=()=>{S.view==="dia"?S.date=addDays(S.date,-1):S.week=addDays(S.week,-7);rPanel()};
   $("next").onclick=()=>{S.view==="dia"?S.date=addDays(S.date,1):S.week=addDays(S.week,7);rPanel()};
+}
+
+function rRecEdit(){
+  const {id,k}=S.recEdit;const e=emps(true).find(x=>x.id===id);if(!e){S.recEdit=null;return rPanel()}
+  const r=rec(id,k);const sch=(e.schedule||{})[fromKey(k).getDay()];
+  $("main").innerHTML=`<div class="panel stack"><strong>${esc(e.name)}</strong><div class="hint" style="margin:0;text-transform:capitalize">${fmtLong(k)} · ${sch&&sch.on?`Horario ${sch.start} a ${sch.end}`:"Día libre"}</div>
+    <div class="row"><div><label for="r-in">Entrada</label><input id="r-in" type="time" value="${r&&r.in?hm(r.in):""}"></div>
+    <div><label for="r-out">Salida</label><input id="r-out" type="time" value="${r&&r.out?hm(r.out):""}"></div></div>
+    <p class="hint">Deja la salida vacía si todavía no ha salido. Los registros que guardes aquí quedan marcados como manuales.</p>
+    <div class="msg info" id="msg"></div>
+    <div class="row"><button class="btn ghost" id="r-cancel">Cancelar</button><button class="btn" id="r-save">Guardar registro</button></div>
+    ${r?'<button class="btn danger" id="r-del">Eliminar registro de este día</button>':""}</div>`;
+  const close=()=>{S.recEdit=null;rPanel()};
+  $("r-cancel").onclick=close;
+  $("r-save").onclick=async()=>{
+    const vi=$("r-in").value,vo=$("r-out").value;
+    if(!vi)return msg("La hora de entrada es obligatoria.","bad");
+    if(vo&&vo<=vi)return msg("La salida debe ser después de la entrada.","bad");
+    const entry={in:tsOf(k,vi),manual:true,editedAt:Date.now()};if(vo)entry.out=tsOf(k,vo);
+    if(r){for(const f of ["inDist","inAcc","outDist","outAcc"])if(r[f]!=null&&!(f.startsWith("out")&&!vo))entry[f]=r[f];
+      if(r.in&&hm(r.in)!==vi){delete entry.inDist;delete entry.inAcc}if(r.out&&vo&&hm(r.out)!==vo){delete entry.outDist;delete entry.outAcc}}
+    const mk=k.slice(0,7);const ref=S.db.doc(`punches/${id}_${mk}`);$("r-save").disabled=true;
+    try{const snap=await ref.get();if(!snap.exists)await ref.set({empId:id,month:mk,days:{[k]:entry}});else await ref.update({["days."+k]:entry});close()}
+    catch(err){$("r-save").disabled=false;msg("No se pudo guardar. Revisa que las reglas de Firestore estén actualizadas.","bad")}
+  };
+  if(r)$("r-del").onclick=async()=>{if(!confirm(`¿Eliminar el registro de ${e.name} del ${fmtLong(k)}?`))return;
+    try{await S.db.doc(`punches/${id}_${k.slice(0,7)}`).update({["days."+k]:firebase.firestore.FieldValue.delete()});close()}
+    catch(err){msg("No se pudo eliminar. Revisa que las reglas de Firestore estén actualizadas.","bad")}};
 }
 
 /* ---------- Empleados ---------- */
