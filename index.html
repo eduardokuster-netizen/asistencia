@@ -137,7 +137,24 @@ try{S.selEmp=localStorage.getItem("asis_emp")}catch(e){}
 
 async function sha(t){const b=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(t));return[...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,"0")).join("")}
 function dist(a,b,c,d){const R=6371000,r=x=>x*Math.PI/180;const dl=r(c-a),dn=r(d-b);const h=Math.sin(dl/2)**2+Math.cos(r(a))*Math.cos(r(c))*Math.sin(dn/2)**2;return 2*R*Math.asin(Math.sqrt(h))}
-function getPos(){return new Promise((res,rej)=>{if(!navigator.geolocation)return rej({code:0});navigator.geolocation.getCurrentPosition(res,rej,{enableHighAccuracy:true,timeout:20000,maximumAge:0})})}
+function getPos(){return new Promise((res,rej)=>{if(!navigator.geolocation)return rej({code:0});let done=false;const t=setTimeout(()=>{if(!done){done=true;rej({code:3})}},25000);
+  navigator.geolocation.getCurrentPosition(p=>{if(!done){done=true;clearTimeout(t);res(p)}},e=>{if(!done){done=true;clearTimeout(t);rej(e)}},{enableHighAccuracy:true,timeout:20000,maximumAge:0})})}
+/* Localizador: escucha GPS y ubicación por red a la vez, y conserva la mejor lectura reciente */
+const GEO={last:null,ids:[],listeners:new Set()};
+function geoStart(){
+  if(GEO.ids.length||!navigator.geolocation)return;
+  const on=p=>{const f={lat:p.coords.latitude,lng:p.coords.longitude,acc:p.coords.accuracy,t:Date.now()};
+    if(!GEO.last||f.acc<=GEO.last.acc||Date.now()-GEO.last.t>15000)GEO.last=f;GEO.listeners.forEach(fn=>fn(f))};
+  const err=e=>{GEO.listeners.forEach(fn=>fn(null,e));if(e&&e.code===1)geoStop()};
+  GEO.ids.push(navigator.geolocation.watchPosition(on,err,{enableHighAccuracy:true,maximumAge:10000,timeout:60000}));
+  GEO.ids.push(navigator.geolocation.watchPosition(on,err,{enableHighAccuracy:false,maximumAge:30000,timeout:60000}));
+}
+function geoStop(){if(navigator.geolocation)GEO.ids.forEach(id=>navigator.geolocation.clearWatch(id));GEO.ids=[]}
+function geoPrewarm(){ // si el permiso ya está concedido, empieza a buscar señal al abrir la pantalla
+  if(!navigator.permissions||!navigator.permissions.query)return;
+  navigator.permissions.query({name:"geolocation"}).then(p=>{if(p.state==="granted"&&S.tab==="marcar"&&!document.hidden)geoStart()}).catch(()=>{});
+}
+document.addEventListener("visibilitychange",()=>{if(document.hidden)geoStop();else if(S.tab==="marcar")geoPrewarm()});
 function geoErr(e){if(e&&e.code===1)return"Permiso de ubicación denegado. Actívalo para este sitio en tu navegador y vuelve a intentar.";if(e&&e.code===3)return"El GPS tardó demasiado. Intenta de nuevo, idealmente cerca de una ventana.";return"No se pudo obtener tu ubicación en este dispositivo."}
 
 const cfg=()=>S.cfg||{bizName:"",lat:null,lng:null,radius:100,tolerance:10,employees:[]};
@@ -189,6 +206,7 @@ function rLogin(){
 $("tabs").onclick=e=>{const b=e.target.closest("button");if(!b)return;S.tab=b.dataset.tab;S.editing=null;S.recEdit=null;render()};
 
 function render(){
+  if(S.tab!=="marcar")geoStop();
   tabs();foot();
   $("biz").textContent=cfg().bizName||"Control de asistencia";
   if(!S.ready){$("main").innerHTML=`<div class="panel empty">${S.noDb?"No se pudo conectar con la base de datos. Revisa la configuración de Firebase.":"Cargando…"}</div>`;return}
@@ -216,7 +234,7 @@ function rMarcar(){
     <div class="stats" id="stats"></div>
   </div>`;
   $("emp").onchange=e=>{S.selEmp=e.target.value||null;try{localStorage.setItem("asis_emp",S.selEmp||"")}catch(_){};updMarcar()};
-  $("stamp").onclick=punch;tick();updMarcar();
+  $("stamp").onclick=punch;tick();updMarcar();geoPrewarm();
 }
 function localDev(){try{return JSON.parse(localStorage.getItem("asis_device")||"null")}catch(e){return null}}
 function setLocalDev(v){try{localStorage.setItem("asis_device",JSON.stringify(v));return localStorage.getItem("asis_device")!==null}catch(e){return false}}
@@ -241,13 +259,25 @@ async function updMarcar(){
   else set(`Entrada ${hm(r.in)}, salida ${hm(r.out)}`,"Jornada completa","stamp",true);
 }
 function msg(t,cls){const m=$("msg");if(m){m.textContent=t;m.className="msg "+cls}}
-async function checkLoc(){
-  const c=cfg();let pos;try{pos=await getPos()}catch(err){throw new Error(geoErr(err))}
-  const acc=pos.coords.accuracy;const d=dist(pos.coords.latitude,pos.coords.longitude,c.lat,c.lng);
-  if(acc>150)throw new Error(`La señal GPS es imprecisa (±${Math.round(acc)} m). Activa la ubicación precisa y vuelve a intentar.`);
-  if(d>c.radius)throw new Error(`Estás a ${Math.round(d)} m del negocio. Debes estar a menos de ${c.radius} m.`);
-  return{d,acc};
-}
+function checkLoc(){return new Promise((res,rej)=>{
+  const c=cfg();const t0=Date.now();const maxAcc=Math.max(150,c.radius);let best=null,done=false;
+  const judge=f=>{const d=dist(f.lat,f.lng,c.lat,c.lng);const acc=f.acc;
+    if(!best||acc<best.acc)best={d,acc};
+    if((d<=c.radius&&acc<=maxAcc)||d+acc<=c.radius)return finish(res,{d,acc});
+    if(acc<=50&&d-acc>c.radius)finish(rej,new Error(`Estás a ${Math.round(d)} m del negocio. Debes estar a menos de ${c.radius} m.`));
+  };
+  const onFix=(f,e)=>{if(e){if(e.code===1)finish(rej,new Error(geoErr(e)));return}judge(f)};
+  const iv=setInterval(()=>{const sec=Math.round((Date.now()-t0)/1000);
+    msg(best?`Buscando tu ubicación (${sec} s). Precisión actual: ±${Math.round(best.acc)} m.`:`Buscando tu ubicación (${sec} s)…`,"info")},1000);
+  const timer=setTimeout(()=>{
+    if(!best)finish(rej,new Error("No se obtuvo señal de ubicación. Revisa que la ubicación esté activada, acércate a una puerta o ventana y vuelve a intentar."));
+    else if(best.acc>maxAcc)finish(rej,new Error(`La señal sigue imprecisa (±${Math.round(best.acc)} m). Acércate a una puerta o ventana y vuelve a intentar.`));
+    else finish(rej,new Error(`Estás a ${Math.round(best.d)} m del negocio. Debes estar a menos de ${c.radius} m.`));
+  },30000);
+  function finish(fn,v){if(done)return;done=true;clearTimeout(timer);clearInterval(iv);GEO.listeners.delete(onFix);fn(v)}
+  GEO.listeners.add(onFix);geoStart();
+  if(GEO.last&&Date.now()-GEO.last.t<30000)judge(GEO.last); // lectura reciente: respuesta inmediata
+})}
 let busy=false;
 async function punch(){
   if(busy)return;const e=emps().find(x=>x.id===S.selEmp);const pin=$("pin").value.trim();
