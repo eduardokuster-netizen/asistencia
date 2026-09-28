@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Control de asistencia</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Semi+Condensed:wght@500;600;700&display=swap" rel="stylesheet">
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<style>
+:root{
+  --bg:#ECEFF3;--paper:#FFFFFF;--ink:#14213D;--muted:#5E6B80;--line:#D5DBE3;
+  --ok:#1E7F52;--late:#B7791F;--bad:#B8322A;--accent:#2B4C8C;--pend:#8A94A6;
+  --okbg:#E3F2EA;--latebg:#FBF0DC;--badbg:#F8E3E1;--pendbg:#EEF1F5;
+  box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0E1524;--paper:#172036;--ink:#E6EBF3;--muted:#98A3B8;--line:#2A3550;
+  --ok:#3CB37A;--late:#E0A63A;--bad:#E0605A;--accent:#7FA2E8;--pend:#7A849A;
+  --okbg:#15372A;--latebg:#3A2E14;--badbg:#3D1D1C;--pendbg:#1F2940;}}
+:root[data-theme="dark"]{
+  --bg:#0E1524;--paper:#172036;--ink:#E6EBF3;--muted:#98A3B8;--line:#2A3550;
+  --ok:#3CB37A;--late:#E0A63A;--bad:#E0605A;--accent:#7FA2E8;--pend:#7A849A;
+  --okbg:#15372A;--latebg:#3A2E14;--badbg:#3D1D1C;--pendbg:#1F2940;}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*,*::before,*::after{box-sizing:inherit}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 "Barlow",system-ui,-apple-system,"Segoe UI",sans-serif}
+.wrap{max-width:760px;margin:0 auto;padding:16px 16px 48px}
+header{display:flex;justify-content:space-between;align-items:baseline;gap:12px;margin-bottom:12px}
+header h1{font:600 20px/1.2 "Barlow Semi Condensed",sans-serif;margin:0}
+header .who{font-size:13px;color:var(--muted)}
+nav{display:flex;gap:4px;background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:4px;margin-bottom:18px;overflow-x:auto}
+nav button{flex:1;border:0;background:none;color:var(--muted);font:600 15px "Barlow",sans-serif;padding:9px 10px;border-radius:9px;cursor:pointer;white-space:nowrap}
+nav button[aria-current="true"]{background:var(--ink);color:var(--paper)}
+button,input,select{font:inherit;color:inherit}
+:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.panel{background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:18px}
+.stack>*+*{margin-top:14px}
+label{display:block;font-size:14px;font-weight:600;margin-bottom:4px}
+input,select{width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:10px;background:var(--bg)}
+.hint{font-size:13px;color:var(--muted);margin:4px 0 0}
+.row{display:flex;gap:10px}.row>*{flex:1}
+.btn{border:0;border-radius:10px;padding:11px 16px;font-weight:600;cursor:pointer;background:var(--ink);color:var(--paper)}
+.btn.ghost{background:none;border:1px solid var(--line);color:var(--ink)}
+.btn.danger{background:none;border:1px solid var(--bad);color:var(--bad)}
+.btn:disabled{opacity:.5;cursor:default}
+/* Reloj */
+.clock{text-align:center;padding:10px 0 4px}
+.clock .t{font:700 clamp(64px,20vw,112px)/1 "Barlow Semi Condensed",sans-serif;letter-spacing:-1px;font-variant-numeric:tabular-nums}
+.clock .d{color:var(--muted);font-size:16px;margin-top:4px;text-transform:capitalize}
+.stamp{display:block;margin:22px auto 8px;width:190px;height:190px;border-radius:50%;border:0;cursor:pointer;
+  background:var(--ink);color:var(--paper);font:700 22px/1.15 "Barlow Semi Condensed",sans-serif;
+  box-shadow:0 0 0 8px var(--paper),0 0 0 10px var(--line)}
+.stamp.out{background:var(--accent)}
+.stamp:active{transform:scale(.97)}
+.stamp:disabled{opacity:.45;cursor:default}
+.msg{text-align:center;min-height:24px;font-weight:600;padding:10px 12px;border-radius:10px}
+.msg.ok{background:var(--okbg);color:var(--ok)}.msg.bad{background:var(--badbg);color:var(--bad)}.msg.info{color:var(--muted)}
+.today{text-align:center;font-size:15px;color:var(--muted)}
+/* Estado */
+.pill{display:inline-block;font-size:13px;font-weight:600;padding:2px 9px;border-radius:999px;white-space:nowrap}
+.s-ok{background:var(--okbg);color:var(--ok)}.s-late{background:var(--latebg);color:var(--late)}
+.s-absent{background:var(--badbg);color:var(--bad)}.s-pending,.s-off,.s-future{background:var(--pendbg);color:var(--pend)}
+.s-extra{background:var(--okbg);color:var(--ok)}
+.counts{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:14px}
+.counts div{background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:10px;text-align:center}
+.counts b{display:block;font:700 28px/1 "Barlow Semi Condensed",sans-serif}
+.counts span{font-size:13px;color:var(--muted)}
+.counts .c-ok b{color:var(--ok)}.counts .c-late b{color:var(--late)}.counts .c-absent b{color:var(--bad)}.counts .c-pending b{color:var(--pend)}
+.bar{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+.bar .nav2{display:flex;align-items:center;gap:6px}
+.bar .nav2 button{width:38px;height:38px;border-radius:10px;border:1px solid var(--line);background:var(--paper);cursor:pointer;font-size:18px}
+.bar .lbl{font-weight:600;min-width:150px;text-align:center}
+.seg{display:flex;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.seg button{border:0;background:var(--paper);padding:8px 14px;cursor:pointer;font-weight:600;color:var(--muted)}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--paper)}
+.list{list-style:none;margin:0;padding:0}
+.list li{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 0;border-top:1px solid var(--line)}
+.list li:first-child{border-top:0}
+.list .nm{font-weight:600}.list .sub{font-size:13px;color:var(--muted)}
+.scroll{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{padding:8px 6px;border-top:1px solid var(--line);text-align:center;white-space:nowrap}
+th{font-weight:600;color:var(--muted);font-size:13px;border-top:0}
+td:first-child,th:first-child{text-align:left;position:sticky;left:0;background:var(--paper)}
+td .dot{display:inline-block;min-width:44px;padding:2px 4px;border-radius:6px;font-weight:600;font-size:13px}
+.sched{display:grid;grid-template-columns:92px 1fr 1fr;gap:6px 8px;align-items:center}
+.sched .day{display:flex;align-items:center;gap:6px;font-size:15px}
+.sched input[type=checkbox]{width:20px;height:20px}
+.sched input[type=time]{padding:8px}
+footer{text-align:center;margin-top:18px}
+footer button{background:none;border:0;color:var(--muted);text-decoration:underline;cursor:pointer;font-size:14px}
+.empty{text-align:center;color:var(--muted);padding:24px 8px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header><h1 id="biz">Control de asistencia</h1><span class="who" id="who"></span></header>
+  <nav id="tabs"></nav>
+  <main id="main"><div class="empty">Cargando…</div></main>
+  <footer id="foot"></footer>
+</div>
+<script>
+/* ====== PEGA AQUÍ LA CONFIGURACIÓN DE TU PROYECTO FIREBASE ====== */
+const firebaseConfig = {
+  apiKey: "AIzaSyDPYnk9FHf9N4fmkRZZBVywo35STY6MS-c",
+  authDomain: "control-asis.firebaseapp.com",
+  projectId: "control-asis",
+  storageBucket: "control-asis.firebasestorage.app",
+  messagingSenderId: "573447532024",
+  appId: "1:573447532024:web:ed9e2cfcc59ae996af3a0d"
+};
+/* ================================================================ */
+const DAYS=["Domingo","Lunes","Martes","Miércoles","Jueves","Viernes","Sábado"];
+const ORDER=[1,2,3,4,5,6,0];
+const S={db:null,user:null,owner:false,cfg:null,docs:{},tab:"marcar",view:"dia",date:null,week:null,editing:null,selEmp:null,subMonths:"",unsub:null,ready:false};
+const pad=n=>String(n).padStart(2,"0");
+const key=d=>d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate());
+const fromKey=k=>{const[y,m,d]=k.split("-").map(Number);return new Date(y,m-1,d)};
+const addDays=(k,n)=>{const d=fromKey(k);d.setDate(d.getDate()+n);return key(d)};
+const monday=k=>{const d=fromKey(k);const w=(d.getDay()+6)%7;d.setDate(d.getDate()-w);return key(d)};
+const hm=ts=>{const d=new Date(ts);return pad(d.getHours())+":"+pad(d.getMinutes())};
+const toMin=s=>{const[h,m]=(s||"0:0").split(":").map(Number);return h*60+m};
+const minOf=ts=>{const d=new Date(ts);return d.getHours()*60+d.getMinutes()};
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const fmtLong=k=>fromKey(k).toLocaleDateString("es",{weekday:"long",day:"numeric",month:"long"});
+const fmtShort=k=>fromKey(k).toLocaleDateString("es",{day:"numeric",month:"short"});
+const $=id=>document.getElementById(id);
+S.date=key(new Date());S.week=monday(S.date);
+try{S.selEmp=localStorage.getItem("asis_emp")}catch(e){}
+
+async function sha(t){const b=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(t));return[...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,"0")).join("")}
+function dist(a,b,c,d){const R=6371000,r=x=>x*Math.PI/180;const dl=r(c-a),dn=r(d-b);const h=Math.sin(dl/2)**2+Math.cos(r(a))*Math.cos(r(c))*Math.sin(dn/2)**2;return 2*R*Math.asin(Math.sqrt(h))}
+function getPos(){return new Promise((res,rej)=>{if(!navigator.geolocation)return rej({code:0});navigator.geolocation.getCurrentPosition(res,rej,{enableHighAccuracy:true,timeout:20000,maximumAge:0})})}
+function geoErr(e){if(e&&e.code===1)return"Permiso de ubicación denegado. Actívalo para este sitio en tu navegador y vuelve a intentar.";if(e&&e.code===3)return"El GPS tardó demasiado. Intenta de nuevo, idealmente cerca de una ventana.";return"No se pudo obtener tu ubicación en este dispositivo."}
+
+const cfg=()=>S.cfg||{bizName:"",lat:null,lng:null,radius:100,tolerance:10,employees:[]};
+const emps=(all)=>(cfg().employees||[]).filter(e=>all||e.active!==false).sort((a,b)=>a.name.localeCompare(b.name));
+const rec=(id,k)=>{const d=S.docs[id+"_"+k.slice(0,7)];return d&&d.days?d.days[k]:null};
+const defSched=()=>{const s={};for(let i=0;i<7;i++)s[i]={on:i>=1&&i<=5,start:"08:00",end:"17:00"};return s};
+
+function status(e,k){
+  const sch=(e.schedule||{})[fromKey(k).getDay()]||{on:false};
+  const r=rec(e.id,k);const today=key(new Date());
+  if(k>today)return{k:"future",t:"—",r};
+  if(!sch.on)return r&&r.in?{k:"extra",t:"Día libre, marcó",r}:{k:"off",t:"Libre",r};
+  if(r&&r.in){const late=minOf(r.in)-toMin(sch.start);return late>(cfg().tolerance||0)?{k:"late",t:"Tarde "+late+" min",r,late}:{k:"ok",t:"A tiempo",r}}
+  const past=k<today||(new Date().getHours()*60+new Date().getMinutes())>toMin(sch.start)+(cfg().tolerance||0);
+  return past?{k:"absent",t:"No ha llegado",r}:{k:"pending",t:"Entra "+sch.start,r};
+}
+
+/* ---------- Tabs ---------- */
+function tabs(){
+  const t=[["marcar","Marcar"]];
+  if(S.owner)t.push(["panel","Panel"],["empleados","Empleados"],["ajustes","Ajustes"]);
+  $("tabs").innerHTML=t.map(([id,l])=>`<button data-tab="${id}" aria-current="${S.tab===id}">${l}</button>`).join("");
+  $("tabs").style.display=t.length>1?"flex":"none";
+}
+function foot(){
+  $("foot").innerHTML=S.owner?'<button id="lo">Cerrar sesión de administrador</button>':(S.tab==="login"?'<button id="lb">Volver a marcar</button>':'<button id="li">Acceso administrador</button>');
+  const lo=$("lo"),li=$("li"),lb=$("lb");
+  if(lo)lo.onclick=()=>firebase.auth().signOut();
+  if(li)li.onclick=()=>{S.tab="login";render()};
+  if(lb)lb.onclick=()=>{S.tab="marcar";render()};
+}
+function rLogin(){
+  $("main").innerHTML=`<div class="panel stack"><strong>Acceso administrador</strong>
+    <div><label for="l-em">Correo</label><input id="l-em" type="email" autocomplete="username"></div>
+    <div><label for="l-pw">Contraseña</label><input id="l-pw" type="password" autocomplete="current-password"></div>
+    <div class="msg info" id="msg"></div><button class="btn" id="l-go">Entrar</button></div>`;
+  $("l-go").onclick=async()=>{msg("Entrando…","info");try{await firebase.auth().signInWithEmailAndPassword($("l-em").value.trim(),$("l-pw").value)}catch(e){msg("Correo o contraseña incorrectos.","bad")}};
+}
+$("tabs").onclick=e=>{const b=e.target.closest("button");if(!b)return;S.tab=b.dataset.tab;S.editing=null;render()};
+
+function render(){
+  tabs();foot();
+  $("biz").textContent=cfg().bizName||"Control de asistencia";
+  if(!S.ready){$("main").innerHTML=`<div class="panel empty">${S.noDb?"No se pudo conectar con la base de datos. Revisa la configuración de Firebase.":"Cargando…"}</div>`;return}
+  ({marcar:rMarcar,panel:rPanel,empleados:rEmpleados,ajustes:rAjustes,login:rLogin})[S.tab]();
+}
+function refresh(){ // tras cambios de datos: no borrar formularios en edición
+  if(S.tab==="marcar")updMarcar();else if(S.tab==="panel")rPanel();else if(S.tab==="empleados"&&!S.editing)rEmpleados();
+  $("biz").textContent=cfg().bizName||"Control de asistencia";
+}
+
+/* ---------- Marcar ---------- */
+function rMarcar(){
+  const list=emps();const c=cfg();
+  if(c.lat==null){$("main").innerHTML=`<div class="panel empty">${S.owner?"Primero fija la ubicación del negocio en Ajustes.":"El administrador aún no ha configurado la ubicación del negocio."}</div>`;return}
+  if(!list.length){$("main").innerHTML=`<div class="panel empty">${S.owner?"Agrega empleados en la pestaña Empleados.":"Todavía no hay empleados registrados."}</div>`;return}
+  if(!list.find(e=>e.id===S.selEmp))S.selEmp=null;
+  $("main").innerHTML=`<div class="panel stack">
+    <div class="clock"><div class="t" id="clk">--:--</div><div class="d" id="dte"></div></div>
+    <div><label for="emp">Empleado</label><select id="emp"><option value="">Selecciona tu nombre</option>${list.map(e=>`<option value="${e.id}" ${e.id===S.selEmp?"selected":""}>${esc(e.name)}</option>`).join("")}</select></div>
+    <div><label for="pin">PIN</label><input id="pin" type="password" inputmode="numeric" autocomplete="off" maxlength="6" placeholder="••••"></div>
+    <div class="today" id="tdy"></div>
+    <button class="stamp" id="stamp">Marcar entrada</button>
+    <div class="msg info" id="msg" role="status">Debes estar dentro del negocio para marcar.</div>
+  </div>`;
+  $("emp").onchange=e=>{S.selEmp=e.target.value||null;try{localStorage.setItem("asis_emp",S.selEmp||"")}catch(_){};updMarcar()};
+  $("stamp").onclick=punch;tick();updMarcar();
+}
+function updMarcar(){
+  if(!$("stamp"))return rMarcar();
+  const e=emps().find(x=>x.id===S.selEmp);const k=key(new Date());const r=e?rec(e.id,k):null;const b=$("stamp");
+  if(!e){$("tdy").textContent="";b.textContent="Marcar entrada";b.className="stamp";b.disabled=true;return}
+  const sch=(e.schedule||{})[new Date().getDay()];
+  const hor=sch&&sch.on?`Horario de hoy: ${sch.start} a ${sch.end}`:"Hoy es tu día libre";
+  if(!r||!r.in){$("tdy").textContent=hor;b.textContent="Marcar entrada";b.className="stamp";b.disabled=false}
+  else if(!r.out){$("tdy").textContent=`Entrada marcada a las ${hm(r.in)}. ${hor}`;b.textContent="Marcar salida";b.className="stamp out";b.disabled=false}
+  else{$("tdy").textContent=`Entrada ${hm(r.in)}, salida ${hm(r.out)}`;b.textContent="Jornada completa";b.className="stamp";b.disabled=true}
+}
+function msg(t,cls){const m=$("msg");if(m){m.textContent=t;m.className="msg "+cls}}
+let busy=false;
+async function punch(){
+  if(busy)return;const e=emps().find(x=>x.id===S.selEmp);const pin=$("pin").value.trim();const c=cfg();
+  if(!e)return msg("Selecciona tu nombre.","bad");
+  if(!pin)return msg("Escribe tu PIN.","bad");
+  if(await sha(e.id+":"+pin)!==e.pinHash)return msg("PIN incorrecto.","bad");
+  const k=key(new Date());const r=rec(e.id,k);
+  const kind=!r||!r.in?"in":!r.out?"out":null;
+  if(!kind)return msg("Ya marcaste entrada y salida hoy.","info");
+  if(kind==="out"&&!confirm("¿Marcar tu salida ahora?"))return;
+  busy=true;$("stamp").disabled=true;msg("Verificando tu ubicación…","info");
+  try{
+    let pos;try{pos=await getPos()}catch(err){throw new Error(geoErr(err))}
+    const acc=pos.coords.accuracy;const d=dist(pos.coords.latitude,pos.coords.longitude,c.lat,c.lng);
+    if(acc>150)throw new Error(`La señal GPS es imprecisa (±${Math.round(acc)} m). Activa la ubicación precisa y vuelve a intentar.`);
+    if(d>c.radius)throw new Error(`Estás a ${Math.round(d)} m del negocio. Debes estar a menos de ${c.radius} m para marcar.`);
+    const now=Date.now();const mk=k.slice(0,7);const ref=S.db.doc(`punches/${e.id}_${mk}`);
+    const snap=await ref.get();const entry={[kind]:now,[kind+"Dist"]:Math.round(d),[kind+"Acc"]:Math.round(acc)};
+    if(!snap.exists)await ref.set({empId:e.id,month:mk,days:{[k]:entry}});else await ref.update({["days."+k]:entry});
+    $("pin").value="";
+    msg(kind==="in"?`Entrada registrada a las ${hm(now)}.`:`Salida registrada a las ${hm(now)}.`,"ok");
+  }catch(err){msg(err.message||"No se pudo registrar. Intenta de nuevo.","bad")}
+  finally{busy=false;updMarcar()}
+}
+function tick(){const c=$("clk");if(!c)return;const n=new Date();c.textContent=pad(n.getHours())+":"+pad(n.getMinutes());$("dte").textContent=fmtLong(key(n))}
+setInterval(tick,1000);
+
+/* ---------- Panel ---------- */
+function ensureSub(){
+  const ms=new Set([S.date.slice(0,7),S.week.slice(0,7),addDays(S.week,6).slice(0,7),key(new Date()).slice(0,7)]);
+  const sig=[...ms].sort().join(",");if(sig===S.subMonths||!S.db)return;S.subMonths=sig;
+  if(S.unsub)S.unsub();
+  S.unsub=S.db.collection("punches").where("month","in",[...ms]).onSnapshot(q=>{const o={};q.docs.forEach(d=>o[d.id]=d.data());S.docs=o;refresh()},()=>{});
+}
+function rPanel(){
+  ensureSub();const list=emps();
+  const head=`<div class="bar"><div class="seg"><button data-v="dia" aria-pressed="${S.view==="dia"}">Día</button><button data-v="semana" aria-pressed="${S.view==="semana"}">Semana</button></div>
+  <div class="nav2"><button id="prev" aria-label="Anterior">‹</button><span class="lbl">${S.view==="dia"?fmtLong(S.date):fmtShort(S.week)+" – "+fmtShort(addDays(S.week,6))}</span><button id="next" aria-label="Siguiente">›</button></div></div>`;
+  let body="";
+  if(!list.length)body=`<div class="panel empty">Agrega empleados para ver su asistencia.</div>`;
+  else if(S.view==="dia"){
+    const st=list.map(e=>({e,s:status(e,S.date)}));const cnt=k=>st.filter(x=>x.s.k===k).length;
+    const order={absent:0,late:1,pending:2,ok:3,extra:4,off:5,future:6};st.sort((a,b)=>order[a.s.k]-order[b.s.k]);
+    body=`<div class="counts"><div class="c-ok"><b>${cnt("ok")+cnt("late")+cnt("extra")}</b><span>Llegaron</span></div><div class="c-late"><b>${cnt("late")}</b><span>Tarde</span></div><div class="c-absent"><b>${cnt("absent")}</b><span>No llegaron</span></div><div class="c-pending"><b>${cnt("pending")}</b><span>Por llegar</span></div></div>
+    <div class="panel"><ul class="list">${st.map(({e,s})=>{const r=s.r;const t=r&&r.in?`Entrada ${hm(r.in)} (${r.inDist} m)`+(r.out?` · Salida ${hm(r.out)}`:""):"Sin marcas";
+      return`<li><div><div class="nm">${esc(e.name)}</div><div class="sub">${t}</div></div><span class="pill s-${s.k}">${s.t}</span></li>`}).join("")}</ul></div>`;
+  }else{
+    const days=[...Array(7)].map((_,i)=>addDays(S.week,i));
+    body=`<div class="panel scroll"><table><thead><tr><th>Empleado</th>${days.map(k=>`<th>${DAYS[fromKey(k).getDay()].slice(0,3)} ${fromKey(k).getDate()}</th>`).join("")}<th>Tarde</th><th>Faltas</th><th>Horas</th></tr></thead><tbody>
+    ${list.map(e=>{let late=0,abs=0,mins=0;const cells=days.map(k=>{const s=status(e,k);if(s.k==="late")late++;if(s.k==="absent")abs++;if(s.r&&s.r.in&&s.r.out)mins+=Math.round((s.r.out-s.r.in)/60000);
+      const txt=s.r&&s.r.in?hm(s.r.in):s.k==="absent"?"Falta":s.k==="off"?"Libre":"—";return`<td><span class="dot s-${s.k}" title="${s.t}">${txt}</span></td>`}).join("");
+      return`<tr><td>${esc(e.name)}</td>${cells}<td>${late}</td><td>${abs}</td><td>${Math.floor(mins/60)}:${pad(mins%60)}</td></tr>`}).join("")}
+    </tbody></table><p class="hint">La hora mostrada es la de entrada. Las horas suman solo los días con entrada y salida.</p></div>`;
+  }
+  $("main").innerHTML=head+body;
+  $("main").querySelectorAll(".seg button").forEach(b=>b.onclick=()=>{S.view=b.dataset.v;rPanel()});
+  $("prev").onclick=()=>{S.view==="dia"?S.date=addDays(S.date,-1):S.week=addDays(S.week,-7);rPanel()};
+  $("next").onclick=()=>{S.view==="dia"?S.date=addDays(S.date,1):S.week=addDays(S.week,7);rPanel()};
+}
+
+/* ---------- Empleados ---------- */
+async function saveCfg(c){await S.db.doc("cfg/main").set(c);S.cfg=c}
+function rEmpleados(){
+  if(S.editing)return rEditor();
+  const list=emps(true);
+  $("main").innerHTML=`<div class="bar"><strong>${list.length} empleado${list.length===1?"":"s"}</strong><button class="btn" id="add">Agregar empleado</button></div>
+  <div class="panel">${list.length?`<ul class="list">${list.map(e=>{const days=ORDER.filter(i=>e.schedule&&e.schedule[i]&&e.schedule[i].on);
+    const s=days.length?days.map(i=>DAYS[i].slice(0,3)).join(", ")+` · ${e.schedule[days[0]].start}–${e.schedule[days[0]].end}`:"Sin horario";
+    return`<li><div><div class="nm">${esc(e.name)}${e.active===false?' <span class="pill s-off">Inactivo</span>':""}</div><div class="sub">${esc(e.role||"")}${e.role?" · ":""}${s}</div></div><button class="btn ghost" data-id="${e.id}">Editar</button></li>`}).join("")}</ul>`:`<div class="empty">Agrega a tu primer empleado con su PIN y horario.</div>`}</div>`;
+  $("add").onclick=()=>{S.editing={id:null};rEditor()};
+  $("main").querySelectorAll("[data-id]").forEach(b=>b.onclick=()=>{S.editing={id:b.dataset.id};rEditor()});
+}
+function rEditor(){
+  const e=S.editing.id?cfg().employees.find(x=>x.id===S.editing.id):null;const sch=e&&e.schedule?e.schedule:defSched();
+  $("main").innerHTML=`<div class="panel stack">
+    <strong>${e?"Editar empleado":"Nuevo empleado"}</strong>
+    <div><label for="f-name">Nombre</label><input id="f-name" value="${esc(e?e.name:"")}"></div>
+    <div><label for="f-role">Cargo (opcional)</label><input id="f-role" value="${esc(e?e.role||"":"")}"></div>
+    <div><label for="f-pin">PIN de 4 a 6 dígitos</label><input id="f-pin" inputmode="numeric" maxlength="6" placeholder="${e?"Déjalo vacío para no cambiarlo":"Ej. 4821"}"></div>
+    <div><label>Horario</label><div class="sched">${ORDER.map(i=>`<div class="day"><input type="checkbox" id="on${i}" ${sch[i].on?"checked":""}><label for="on${i}" style="margin:0;font-weight:500">${DAYS[i]}</label></div><input type="time" id="st${i}" value="${sch[i].start}" aria-label="Entrada ${DAYS[i]}"><input type="time" id="en${i}" value="${sch[i].end}" aria-label="Salida ${DAYS[i]}">`).join("")}</div>
+      <p class="hint">Marca los días que trabaja y su hora de entrada y salida.</p></div>
+    ${e?`<div class="day" style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="f-act" style="width:20px;height:20px" ${e.active!==false?"checked":""}><label for="f-act" style="margin:0">Activo (puede marcar)</label></div>`:""}
+    <div class="msg info" id="msg"></div>
+    <div class="row"><button class="btn ghost" id="cancel">Cancelar</button><button class="btn" id="save">Guardar</button></div>
+    ${e?`<button class="btn danger" id="del">Eliminar empleado</button>`:""}
+  </div>`;
+  $("cancel").onclick=()=>{S.editing=null;rEmpleados()};
+  $("save").onclick=async()=>{
+    const name=$("f-name").value.trim();const pin=$("f-pin").value.trim();
+    if(!name)return msg("Escribe el nombre.","bad");
+    if(pin&&!/^\d{4,6}$/.test(pin))return msg("El PIN debe tener de 4 a 6 números.","bad");
+    if(!e&&!pin)return msg("Asigna un PIN al nuevo empleado.","bad");
+    const schedule={};for(const i of ORDER){schedule[i]={on:$("on"+i).checked,start:$("st"+i).value||"08:00",end:$("en"+i).value||"17:00"}}
+    const c=JSON.parse(JSON.stringify(cfg()));c.employees=c.employees||[];
+    const id=e?e.id:"e"+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+    const obj={id,name,role:$("f-role").value.trim(),schedule,active:e?$("f-act").checked:true,pinHash:pin?await sha(id+":"+pin):e.pinHash};
+    if(e)c.employees=c.employees.map(x=>x.id===id?obj:x);else c.employees.push(obj);
+    $("save").disabled=true;
+    try{await saveCfg(c);S.editing=null;rEmpleados()}catch(err){$("save").disabled=false;msg("No se pudo guardar. Intenta de nuevo.","bad")}
+  };
+  if(e)$("del").onclick=async()=>{if(!confirm(`¿Eliminar a ${e.name}? Sus marcas anteriores se conservan pero no aparecerá en el panel.`))return;
+    const c=JSON.parse(JSON.stringify(cfg()));c.employees=c.employees.filter(x=>x.id!==e.id);
+    try{await saveCfg(c);S.editing=null;rEmpleados()}catch(err){msg("No se pudo eliminar.","bad")}};
+}
+
+/* ---------- Ajustes ---------- */
+function rAjustes(){
+  const c=cfg();
+  $("main").innerHTML=`<div class="panel stack">
+    <div><label for="a-biz">Nombre del negocio</label><input id="a-biz" value="${esc(c.bizName||"")}"></div>
+    <div><label>Ubicación del negocio</label>
+      <div class="row"><input id="a-lat" inputmode="decimal" placeholder="Latitud" value="${c.lat??""}"><input id="a-lng" inputmode="decimal" placeholder="Longitud" value="${c.lng??""}"></div>
+      <p class="hint">Estando dentro del negocio, toca "Usar mi ubicación actual". También puedes copiarla de Google Maps: mantén presionado el punto del negocio y copia los dos números que aparecen.</p>
+      <button class="btn ghost" id="here" style="margin-top:8px">Usar mi ubicación actual</button></div>
+    <div class="row"><div><label for="a-rad">Radio permitido (m)</label><input id="a-rad" type="number" min="20" max="1000" value="${c.radius||100}"></div>
+      <div><label for="a-tol">Tolerancia (min)</label><input id="a-tol" type="number" min="0" max="60" value="${c.tolerance??10}"></div></div>
+    <p class="hint">Con 100 m cubres el local y la acera. La tolerancia son los minutos de gracia antes de contar como tarde.</p>
+    <div class="msg info" id="msg"></div>
+    <button class="btn" id="save">Guardar ajustes</button>
+  </div>`;
+  $("here").onclick=async()=>{msg("Obteniendo ubicación…","info");try{const p=await getPos();$("a-lat").value=p.coords.latitude.toFixed(6);$("a-lng").value=p.coords.longitude.toFixed(6);msg(`Ubicación tomada (precisión ±${Math.round(p.coords.accuracy)} m). Toca Guardar ajustes.`,"ok")}catch(err){msg(geoErr(err),"bad")}};
+  $("save").onclick=async()=>{
+    const lat=parseFloat(String($("a-lat").value).replace(",",".")),lng=parseFloat(String($("a-lng").value).replace(",","."));
+    if(isNaN(lat)||isNaN(lng)||Math.abs(lat)>90||Math.abs(lng)>180)return msg("Revisa la latitud y la longitud.","bad");
+    const n=JSON.parse(JSON.stringify(cfg()));n.bizName=$("a-biz").value.trim();n.lat=lat;n.lng=lng;
+    n.radius=Math.max(20,parseInt($("a-rad").value)||100);n.tolerance=Math.max(0,parseInt($("a-tol").value)||0);n.employees=n.employees||[];
+    try{await saveCfg(n);msg("Ajustes guardados.","ok");$("biz").textContent=n.bizName||"Control de asistencia"}catch(err){msg("No se pudo guardar. Intenta de nuevo.","bad")}
+  };
+}
+
+/* ---------- Inicio ---------- */
+render();
+try{
+  firebase.initializeApp(firebaseConfig);
+  const db=firebase.firestore();S.db=db;
+  let first=true,unsubCfg=null;
+  db.doc("cfg/main").onSnapshot(s=>{S.cfg=s.exists?s.data():null;if(first){first=false;S.ready=true;ensureSub();render()}else refresh()},()=>{S.noDb=true;render()});
+  firebase.auth().onAuthStateChanged(u=>{
+    const was=S.owner;S.owner=!!u;$("who").textContent=S.owner?"Administrador":"";
+    if(S.owner&&!was)S.tab=(S.cfg&&S.cfg.lat!=null)?"panel":"ajustes";
+    if(!S.owner&&S.tab!=="login")S.tab="marcar";
+    S.editing=null;render();
+  });
+}catch(e){S.noDb=true;render()}
+</script>
+</body>
+</html>
