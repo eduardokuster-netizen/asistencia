@@ -124,7 +124,7 @@ const firebaseConfig = {
   appId: "1:573447532024:web:ed9e2cfcc59ae996af3a0d"
 };
 /* =================================================== */
-const VERSION="V1.03";
+const VERSION="V1.04";
 // Mensaje de error con la causa real (permiso, conexión, etc.)
 function errTxt(err,base){const c=err&&err.code||"";
   if(c.includes("permission-denied"))return base+" Firebase lo rechazó por permisos: revisa que tu UID (al pie de la página) esté en las reglas de Firestore y que las reglas estén publicadas.";
@@ -357,8 +357,8 @@ async function rMarcar(){
     <div class="msg info" id="msg" role="status">Debes estar dentro del negocio para marcar.</div>
     <div class="stats" id="stats"></div>
     <div id="myleaves"></div>
-    <button class="btn ghost big" id="goleave">Solicitar permiso</button></div>`;
-  $("goleave").onclick=()=>{S.emode="leave";render()};
+    ${e.allowLeave!==false?'<button class="btn ghost big" id="goleave">Solicitar permiso</button>':""}</div>`;
+  if($("goleave"))$("goleave").onclick=()=>{S.emode="leave";render()};
   $("stamp").onclick=punch;tick();updHome(e);geoPrewarm();
 }
 async function updMarcar(){
@@ -467,7 +467,7 @@ function rLeaveForm(){
   $("p-type").onchange=()=>{$("p-untilw").style.display=$("p-type").value==="late"?"block":"none"};
   $("p-back").onclick=()=>{S.emode="home";render()};
   $("p-go").onclick=async()=>{
-    const st=await myState();if(st.k!=="ok"){S.emode="home";return render()}
+    const st=await myState();if(st.k!=="ok"||st.e.allowLeave===false){S.emode="home";return render()}
     const type=$("p-type").value,date=$("p-date").value,until=$("p-until").value,reason=$("p-reason").value.trim();
     if(!date||date<t)return msg("Elige una fecha de hoy en adelante.","bad");
     if(type==="late"&&!until)return msg("Indica a qué hora llegarías.","bad");
@@ -590,6 +590,7 @@ function rEditor(){
     <div><label for="f-pin">Clave de 4 a 6 números</label><input id="f-pin" inputmode="numeric" maxlength="6" placeholder="${R?"Ya la creó el empleado":e?"Déjalo vacío para no cambiarla":"Ej. 482190"}"></div>
     <div><label>Horario</label><div class="sched">${ORDER.map(i=>`<div class="day"><input type="checkbox" id="on${i}" ${sch[i].on?"checked":""}><label for="on${i}" style="margin:0;font-weight:500">${DAYS[i]}</label></div><input type="time" id="st${i}" value="${sch[i].start}" aria-label="Entrada ${DAYS[i]}"><input type="time" id="en${i}" value="${sch[i].end}" aria-label="Salida ${DAYS[i]}"><select id="q${i}" aria-label="Frecuencia ${DAYS[i]}">${[0,1,2,3].map(n=>`<option value="${n}" ${(sch[i].quota||0)===n?"selected":""}>${n?n+" al mes":"Semanal"}</option>`).join("")}</select>`).join("")}</div>
       <p class="hint">Marca los días que trabaja con su hora de entrada y salida. En "Semanal" debe venir todas las semanas; con "2 al mes" ese día es opcional, pero debe trabajar 2 en el mes o se cuentan como faltas.</p></div>
+    <div style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="f-leave" style="width:20px;height:20px" ${!e||e.allowLeave!==false?"checked":""}><label for="f-leave" style="margin:0">Puede solicitar permisos desde la app</label></div>
     ${e?`<div style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="f-act" style="width:20px;height:20px" ${e.active!==false?"checked":""}><label for="f-act" style="margin:0">Activo (puede marcar)</label></div>`:""}
     <div class="msg info" id="msg"></div>
     <div class="row"><button class="btn ghost" id="cancel">Cancelar</button><button class="btn" id="save">${R?"Aprobar":"Guardar"}</button></div>
@@ -606,7 +607,7 @@ function rEditor(){
     const schedule={};for(const i of ORDER){schedule[i]={on:$("on"+i).checked,start:$("st"+i).value||"08:00",end:$("en"+i).value||"17:00",quota:parseInt($("q"+i).value)||0}}
     const c=JSON.parse(JSON.stringify(cfg()));c.employees=c.employees||[];
     const eid=e?e.id:R?id:newId("e");
-    const obj={id:eid,since:e?(e.since||null):key(new Date()),first:fn,last:ln,name:(fn+" "+ln).trim(),companyId:comp,schedule,active:e?$("f-act").checked:true,
+    const obj={id:eid,since:e?(e.since||null):key(new Date()),first:fn,last:ln,name:(fn+" "+ln).trim(),companyId:comp,schedule,active:e?$("f-act").checked:true,allowLeave:$("f-leave").checked,
       pinHash:pin?await sha(eid+":"+pin):e?e.pinHash:R.pinHash};
     if(e)c.employees=c.employees.map(x=>x.id===eid?obj:x);else c.employees.push(obj);
     $("save").disabled=true;
