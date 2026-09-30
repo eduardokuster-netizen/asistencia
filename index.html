@@ -77,7 +77,7 @@ input,select{width:100%;padding:11px 12px;border:1px solid var(--line);border-ra
 .bar .nav2 button{width:38px;height:38px;border-radius:10px;border:1px solid var(--line);background:var(--paper);cursor:pointer;font-size:18px}
 .bar .lbl{font-weight:600;min-width:150px;text-align:center}
 .seg{display:flex;border:1px solid var(--line);border-radius:10px;overflow:hidden}
-.seg button{border:0;background:var(--paper);padding:8px 14px;cursor:pointer;font-weight:600;color:var(--muted)}
+.seg button{border:0;background:var(--paper);padding:8px 11px;cursor:pointer;font-weight:600;color:var(--muted)}
 .seg button[aria-pressed="true"]{background:var(--ink);color:var(--paper)}
 .list{list-style:none;margin:0;padding:0}
 .list li{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 0;border-top:1px solid var(--line)}
@@ -124,7 +124,7 @@ const firebaseConfig = {
   appId: "1:573447532024:web:ed9e2cfcc59ae996af3a0d"
 };
 /* =================================================== */
-const VERSION="V1.04";
+const VERSION="V1.05";
 // Mensaje de error con la causa real (permiso, conexión, etc.)
 function errTxt(err,base){const c=err&&err.code||"";
   if(c.includes("permission-denied"))return base+" Firebase lo rechazó por permisos: revisa que tu UID (al pie de la página) esté en las reglas de Firestore y que las reglas estén publicadas.";
@@ -151,6 +151,27 @@ const $=id=>document.getElementById(id);
 const newId=p=>p+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
 const model=()=>{const ua=navigator.userAgent;return/iPhone/.test(ua)?"iPhone":/Android/.test(ua)?"Android":/Windows/.test(ua)?"Windows":/Mac/.test(ua)?"Mac":"Otro"};
 S.date=key(new Date());S.week=monday(S.date);
+const qStart=k=>k.slice(0,8)+(+k.slice(8)<=15?"01":"16");
+const mEnd=k=>{let d=k.slice(0,8)+"28";while(addDays(d,1).slice(0,7)===k.slice(0,7))d=addDays(d,1);return d};
+S.q=qStart(S.date);S.m=S.date.slice(0,8)+"01";
+function rangeKeys(a,b){const ks=[];let k=a;while(k<=b){ks.push(k);k=addDays(k,1)}return ks}
+function periodDays(){
+  if(S.view==="semana")return rangeKeys(S.week,addDays(S.week,6));
+  if(S.view==="quincena")return rangeKeys(S.q,S.q.endsWith("-01")?S.q.slice(0,8)+"15":mEnd(S.q));
+  if(S.view==="mes")return rangeKeys(S.m,mEnd(S.m));
+  return[S.date];
+}
+function shiftPeriod(dir){
+  if(S.view==="dia")S.date=addDays(S.date,dir);
+  else if(S.view==="semana")S.week=addDays(S.week,7*dir);
+  else if(S.view==="quincena"){const d=periodDays();S.q=qStart(dir<0?addDays(S.q,-1):addDays(d[d.length-1],1))}
+  else S.m=(dir<0?addDays(S.m,-1):addDays(mEnd(S.m),1)).slice(0,8)+"01";
+}
+function periodLabel(){
+  if(S.view==="dia")return fmtLong(S.date);
+  if(S.view==="mes"){const t=fromKey(S.m).toLocaleDateString("es",{month:"long",year:"numeric"});return t.charAt(0).toUpperCase()+t.slice(1)}
+  const d=periodDays();return fmtShort(d[0])+" – "+fmtShort(d[d.length-1]);
+}
 try{S.company=localStorage.getItem("asis_company")}catch(e){}
 
 async function sha(t){const b=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(t));return[...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,"0")).join("")}
@@ -256,7 +277,7 @@ function msg(t,cls){const m=$("msg");if(m){m.textContent=t;m.className="msg "+cl
 
 /* ---------- Suscripciones ---------- */
 function ensureSub(){
-  const ms=new Set([S.date.slice(0,7),S.week.slice(0,7),addDays(S.week,6).slice(0,7),key(new Date()).slice(0,7)]);
+  const ms=new Set([S.date.slice(0,7),key(new Date()).slice(0,7),...periodDays().map(k=>k.slice(0,7))]);
   const sig=[...ms].sort().join(",");if(sig===S.subMonths||!S.db)return;S.subMonths=sig;
   if(S.unsub)S.unsub();
   S.unsub=S.db.collection("punches").where("month","in",[...ms]).onSnapshot(q=>{const o={};q.docs.forEach(d=>o[d.id]=d.data());S.docs=o;refresh()},()=>{});
@@ -492,8 +513,8 @@ function rPanel(){
   ensureSub();if(S.recEdit)return rRecEdit();
   if(!comps().length){$("main").innerHTML=pendBanner()+`<div class="panel empty">Crea tu primera empresa para empezar.<br><br><button class="btn" id="gocomp">Ir a Empresas</button></div>`;bindBanner();$("gocomp").onclick=()=>{S.tab="empresas";render()};return}
   const list=emps(false,S.company);
-  const head=`<div class="bar"><div class="seg"><button data-v="dia" aria-pressed="${S.view==="dia"}">Día</button><button data-v="semana" aria-pressed="${S.view==="semana"}">Semana</button></div>
-  <div class="nav2"><button id="prev" aria-label="Anterior">‹</button><span class="lbl">${S.view==="dia"?fmtLong(S.date):fmtShort(S.week)+" – "+fmtShort(addDays(S.week,6))}</span><button id="next" aria-label="Siguiente">›</button></div></div>`;
+  const head=`<div class="bar"><div class="seg"><button data-v="dia" aria-pressed="${S.view==="dia"}">Día</button><button data-v="semana" aria-pressed="${S.view==="semana"}">Semana</button><button data-v="quincena" aria-pressed="${S.view==="quincena"}">Quincena</button><button data-v="mes" aria-pressed="${S.view==="mes"}">Mes</button></div>
+  <div class="nav2"><button id="prev" aria-label="Anterior">‹</button><span class="lbl">${periodLabel()}</span><button id="next" aria-label="Siguiente">›</button></div></div>`;
   let body="";
   if(!list.length)body=`<div class="panel empty">Esta empresa todavía no tiene empleados aprobados.</div>`;
   else if(S.view==="dia"){
@@ -504,19 +525,19 @@ function rPanel(){
       const extra=[lvp?(lvp.type==="absence"?"Permiso por el día":"Permiso hasta "+lvp.until)+(lvp.reason?": "+esc(lvp.reason):""):"",qt].filter(Boolean).join(" · ");
       return`<li><div><div class="nm">${esc(fullName(e))}</div><div class="sub">${t}</div>${extra?`<div class="sub">${extra}</div>`:""}</div><div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;justify-content:flex-end"><span class="pill s-${s.k}">${s.t}</span><button class="btn ghost" data-ed="${e.id}" data-k="${S.date}">${r?"Editar":"Agregar"}</button></div></li>`}).join("")}</ul></div>`;
   }else{
-    const days=[...Array(7)].map((_,i)=>addDays(S.week,i));
+    const days=periodDays();const mp=days[0].slice(0,7);
     body=`<div class="panel scroll"><table><thead><tr><th>Empleado</th>${days.map(k=>`<th>${DAYS[fromKey(k).getDay()].slice(0,3)} ${fromKey(k).getDate()}</th>`).join("")}<th>Tarde</th><th>Faltas</th><th>Horas</th><th>Extra</th></tr></thead><tbody>
-    ${list.map(e=>{const m=sumRange(e,days);const cells=days.map(k=>{const s=status(e,k);
-      const txt=s.r&&s.r.in?hm(s.r.in):s.k==="absent"?"Falta":s.k==="off"?"Libre":s.k==="leave"?"Permiso":s.k==="flex"?"Opc.":"—";return`<td data-ed="${e.id}" data-k="${k}" title="Toca para editar"><span class="dot s-${s.k}">${txt}</span></td>`}).join("");
-      const qt=quotaTxt(quotaInfo(e,S.week.slice(0,7)));return`<tr><td>${esc(fullName(e))}${qt?`<div class="sub" style="font-size:12px;color:var(--muted)">${qt}</div>`:""}</td>${cells}<td>${m.late}</td><td>${m.abs}</td><td>${hmin(m.work)}</td><td>${hmin(m.extra)}</td></tr>`}).join("")}
-    </tbody></table><p class="hint">La hora mostrada es la de entrada; toca una celda para editar ese día. Las horas suman solo los días con entrada y salida. Horas extra: tiempo después de la hora de salida, o el día completo si era día libre. "Opc." es un día con cuota mensual (por ejemplo, 2 sábados al mes).</p></div>`;
+    ${list.map(e=>{const m=sumRange(e,days);const qi=quotaInfo(e,mp);const miss=S.view==="mes"?qi.reduce((a,x)=>a+x.missed,0):0;const cells=days.map(k=>{const s=status(e,k);
+      const txt=s.r&&s.r.in?`${hm(s.r.in)}<br><span style="opacity:.7">${s.r.out?hm(s.r.out):"--:--"}</span>`:s.k==="absent"?"Falta":s.k==="off"?"Libre":s.k==="leave"?"Permiso":s.k==="flex"?"Opc.":"—";return`<td data-ed="${e.id}" data-k="${k}" title="Toca para editar"><span class="dot s-${s.k}">${txt}</span></td>`}).join("");
+      const qt=quotaTxt(qi);return`<tr><td>${esc(fullName(e))}${qt?`<div class="sub" style="font-size:12px;color:var(--muted)">${qt}</div>`:""}</td>${cells}<td>${m.late}</td><td>${m.abs+miss}</td><td>${hmin(m.work)}</td><td>${hmin(m.extra)}</td></tr>`}).join("")}
+    </tbody></table><p class="hint">En cada día, arriba la hora de entrada y abajo la de salida; toca una celda para editar ese día. Las horas suman solo los días con entrada y salida. Horas extra: tiempo después de la hora de salida, o el día completo si era día libre. "Opc." es un día con cuota mensual (por ejemplo, 2 sábados al mes).</p></div>`;
   }
   $("main").innerHTML=pendBanner()+compBar()+head+body;
   bindBanner();bindComp(rPanel);
   $("main").querySelectorAll("[data-ed]").forEach(el=>el.onclick=()=>{S.recEdit={id:el.dataset.ed,k:el.dataset.k};rPanel()});
   $("main").querySelectorAll(".seg button").forEach(b=>b.onclick=()=>{S.view=b.dataset.v;rPanel()});
-  $("prev").onclick=()=>{S.view==="dia"?S.date=addDays(S.date,-1):S.week=addDays(S.week,-7);rPanel()};
-  $("next").onclick=()=>{S.view==="dia"?S.date=addDays(S.date,1):S.week=addDays(S.week,7);rPanel()};
+  $("prev").onclick=()=>{shiftPeriod(-1);rPanel()};
+  $("next").onclick=()=>{shiftPeriod(1);rPanel()};
 }
 function rRecEdit(){
   const {id,k}=S.recEdit;const e=emps(true).find(x=>x.id===id);if(!e){S.recEdit=null;return rPanel()}
