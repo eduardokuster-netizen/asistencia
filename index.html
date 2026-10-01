@@ -124,7 +124,7 @@ const firebaseConfig = {
   appId: "1:573447532024:web:ed9e2cfcc59ae996af3a0d"
 };
 /* =================================================== */
-const VERSION="V1.06";
+const VERSION="V1.07";
 // Mensaje de error con la causa real (permiso, conexión, etc.)
 function errTxt(err,base){const c=err&&err.code||"";
   if(c.includes("permission-denied"))return base+" Firebase lo rechazó por permisos: revisa que tu UID (al pie de la página) esté en las reglas de Firestore y que las reglas estén publicadas.";
@@ -282,7 +282,7 @@ function ensureSub(){
   const ms=new Set([S.date.slice(0,7),key(new Date()).slice(0,7),...periodDays().map(k=>k.slice(0,7))]);
   const sig=[...ms].sort().join(",");if(sig===S.subMonths||!S.db)return;S.subMonths=sig;
   if(S.unsub)S.unsub();
-  S.unsub=S.db.collection("punches").where("month","in",[...ms]).onSnapshot(q=>{const o={};q.docs.forEach(d=>o[d.id]=d.data());S.docs=o;refresh()},()=>{});
+  S.unsub=S.db.collection("punches").where("month","in",[...ms]).onSnapshot(q=>{const o={};q.docs.forEach(d=>o[d.id]=d.data());S.docs=o;S.punchLoaded=true;refresh()},()=>{});
 }
 function subMine(){ // el documento del celular y la solicitud de este dispositivo
   S.mineUnsubs.forEach(u=>u());S.mineUnsubs=[];const L=localDev();
@@ -391,7 +391,8 @@ async function updMarcar(){
 }
 function updHome(e){
   const k=key(new Date());const r=rec(e.id,k);const b=$("stamp");if(!b)return;
-  const set=(t,label,cls,dis)=>{$("tdy").textContent=t;b.textContent=label;b.className=cls;b.disabled=dis};
+  const set=(t,label,cls,dis)=>{$("tdy").textContent=t;b.textContent=label;b.className=cls;b.disabled=dis||busy};
+  if(!S.punchLoaded){set("Cargando tus marcas…","Cargando…","stamp",true);return}
   const sch=(e.schedule||{})[new Date().getDay()];const lv=leaveOf(e.id,k);
   let hor=sch&&sch.on?`Horario de hoy: ${t12(sch.start)} a ${t12(sch.end)}`:"Hoy es tu día libre";
   if(sch&&sch.on&&sch.quota)hor=`Hoy es ${DAYS[new Date().getDay()].toLowerCase()} opcional: debes trabajar ${sch.quota} al mes`;
@@ -410,21 +411,24 @@ function updHome(e){
 }
 let busy=false;
 async function punch(){
-  if(busy)return;const st=await myState();if(st.k!=="ok")return rMarcar();
-  const e=st.e;
-  const k=key(new Date());const r=rec(e.id,k);
-  const kind=!r||!r.in?"in":!r.out?"out":null;
-  if(!kind)return msg("Ya marcaste entrada y salida hoy.","info");
-  if(kind==="out"&&!confirm("¿Marcar tu salida ahora?"))return;
-  busy=true;$("stamp").disabled=true;
+  if(busy)return;busy=true;let e=null;
   try{
+    const st=await myState();if(st.k!=="ok"){busy=false;return rMarcar()}
+    e=st.e;$("stamp").disabled=true;msg("Revisando tus marcas de hoy…","info");
+    const k=key(new Date());const mk=k.slice(0,7);const ref=S.db.doc(`punches/${e.id}_${mk}`);
+    // La decisión entrada/salida se toma con lo que está guardado en el servidor, no con lo que muestra la pantalla
+    let snap;try{snap=await ref.get({source:"server"})}catch(_){throw new Error("No hay conexión. Revisa tu internet y vuelve a intentar.")}
+    const r=snap.exists?((snap.data().days||{})[k]||null):null;
+    const kind=!r||!r.in?"in":!r.out?"out":null;
+    if(!kind){msg("Ya marcaste entrada y salida hoy.","info");return}
+    if(kind==="out"&&!confirm(`Tu entrada fue a las ${hm(r.in)}. ¿Marcar tu salida ahora?`)){msg("Salida no marcada.","info");return}
     const {d,acc}=await checkLoc([compOf(e)]);
-    const now=Date.now();const mk=k.slice(0,7);const ref=S.db.doc(`punches/${e.id}_${mk}`);
-    const snap=await ref.get();const entry={[kind]:now,[kind+"Dist"]:Math.round(d),[kind+"Acc"]:Math.round(acc)};
-    if(!snap.exists)await ref.set({empId:e.id,month:mk,days:{[k]:entry}});else{const upd={};for(const f in entry)upd[`days.${k}.${f}`]=entry[f];await ref.update(upd)}
+    const now=Date.now();const entry={[kind]:now,[kind+"Dist"]:Math.round(d),[kind+"Acc"]:Math.round(acc)};
+    if(!snap.exists)await ref.set({empId:e.id,month:mk,days:{[k]:entry}});
+    else{const upd={};for(const f in entry)upd[`days.${k}.${f}`]=entry[f];await ref.update(upd)}
     msg(kind==="in"?`Entrada registrada a las ${hm(now)}.`:`Salida registrada a las ${hm(now)}.`,"ok");
   }catch(err){msg(err.message||"No se pudo registrar. Intenta de nuevo.","bad")}
-  finally{busy=false;updHome(e)}
+  finally{busy=false;if(e)updHome(e)}
 }
 function rRegister(){
   $("main").innerHTML=`<div class="panel stack"><strong>Registro de empleado</strong>
