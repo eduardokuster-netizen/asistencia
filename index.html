@@ -1,7 +1,8 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="es" data-theme="light">
 <head>
 <meta charset="utf-8">
+<meta name="color-scheme" content="light">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Control de asistencia</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -124,7 +125,7 @@ const firebaseConfig = {
   appId: "1:573447532024:web:ed9e2cfcc59ae996af3a0d"
 };
 /* =================================================== */
-const VERSION="V1.07";
+const VERSION="V1.08";
 // Mensaje de error con la causa real (permiso, conexión, etc.)
 function errTxt(err,base){const c=err&&err.code||"";
   if(c.includes("permission-denied"))return base+" Firebase lo rechazó por permisos: revisa que tu UID (al pie de la página) esté en las reglas de Firestore y que las reglas estén publicadas.";
