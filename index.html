@@ -125,7 +125,7 @@ const firebaseConfig = {
   appId: "1:573447532024:web:ed9e2cfcc59ae996af3a0d"
 };
 /* =================================================== */
-const VERSION="V1.08";
+const VERSION="V1.09";
 // Mensaje de error con la causa real (permiso, conexión, etc.)
 function errTxt(err,base){const c=err&&err.code||"";
   if(c.includes("permission-denied"))return base+" Firebase lo rechazó por permisos: revisa que tu UID (al pie de la página) esté en las reglas de Firestore y que las reglas estén publicadas.";
@@ -533,10 +533,10 @@ function rPanel(){
       return`<li><div><div class="nm">${esc(fullName(e))}</div><div class="sub">${t}</div>${extra?`<div class="sub">${extra}</div>`:""}</div><div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;justify-content:flex-end"><span class="pill s-${s.k}">${s.t}</span><button class="btn ghost" data-ed="${e.id}" data-k="${S.date}">${r?"Editar":"Agregar"}</button></div></li>`}).join("")}</ul></div>`;
   }else{
     const days=periodDays();const mp=days[0].slice(0,7);
-    body=`<div class="panel scroll"><table><thead><tr><th>Empleado</th>${days.map(k=>`<th>${DAYS[fromKey(k).getDay()].slice(0,3)} ${fromKey(k).getDate()}</th>`).join("")}<th>Tarde</th><th>Faltas</th><th>Horas</th><th>Extra</th></tr></thead><tbody>
+    body=`<div class="panel scroll"><table><thead><tr><th>Empleado</th>${days.map(k=>`<th>${DAYS[fromKey(k).getDay()].slice(0,3)} ${fromKey(k).getDate()}</th>`).join("")}<th>Tarde</th><th>Min. tarde</th><th>Faltas</th><th>Horas</th><th>Extra</th></tr></thead><tbody>
     ${list.map(e=>{const m=sumRange(e,days);const qi=quotaInfo(e,mp);const miss=S.view==="mes"?qi.reduce((a,x)=>a+x.missed,0):0;const cells=days.map(k=>{const s=status(e,k);
       const txt=s.r&&s.r.in?`${hm(s.r.in)}<br><span style="opacity:.7">${s.r.out?hm(s.r.out):"--:--"}</span>`:s.k==="absent"?"Falta":s.k==="off"?"Libre":s.k==="leave"?"Permiso":s.k==="flex"?"Opc.":"—";return`<td data-ed="${e.id}" data-k="${k}" title="Toca para editar"><span class="dot s-${s.k}">${txt}</span></td>`}).join("");
-      const qt=quotaTxt(qi);return`<tr><td>${esc(fullName(e))}${qt?`<div class="sub" style="font-size:12px;color:var(--muted)">${qt}</div>`:""}</td>${cells}<td>${m.late}</td><td>${m.abs+miss}</td><td>${hmin(m.work)}</td><td>${hmin(m.extra)}</td></tr>`}).join("")}
+      const qt=quotaTxt(qi);return`<tr><td>${esc(fullName(e))}${qt?`<div class="sub" style="font-size:12px;color:var(--muted)">${qt}</div>`:""}</td>${cells}<td>${m.late}</td><td>${m.lateMin}</td><td>${m.abs+miss}</td><td>${hmin(m.work)}</td><td>${hmin(m.extra)}</td></tr>`}).join("")}
     </tbody></table><p class="hint">En cada día, arriba la hora de entrada y abajo la de salida; toca una celda para editar ese día. Las horas suman solo los días con entrada y salida. Horas extra: tiempo después de la hora de salida, o el día completo si era día libre. "Opc." es un día con cuota mensual (por ejemplo, 2 sábados al mes).</p></div>`;
   }
   $("main").innerHTML=pendBanner()+compBar()+head+body;
