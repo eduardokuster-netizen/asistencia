@@ -140,7 +140,7 @@ const firebaseConfig = {
   appId: "1:573447532024:web:ed9e2cfcc59ae996af3a0d"
 };
 /* =================================================== */
-const VERSION="V1.11";
+const VERSION="V1.12";
 // Mensaje de error con la causa real (permiso, conexión, etc.)
 function errTxt(err,base){const c=err&&err.code||"";
   if(c.includes("permission-denied"))return base+" Firebase lo rechazó por permisos: revisa que tu UID (al pie de la página) esté en las reglas de Firestore y que las reglas estén publicadas.";
@@ -597,7 +597,9 @@ function rRecEdit(){
 }
 
 function rReport(){
-  const days=periodDays();const mp=days[0].slice(0,7);const ext=!!S.repExtra;
+  if(S.repExtra===undefined){try{const o=JSON.parse(localStorage.getItem("asis_rep")||"{}");S.repExtra=!!o.extra;S.repWork=o.work!==false}catch(_){S.repExtra=false;S.repWork=true}}
+  const saveOpt=()=>{try{localStorage.setItem("asis_rep",JSON.stringify({extra:S.repExtra,work:S.repWork}))}catch(_){}};
+  const days=periodDays();const mp=days[0].slice(0,7);const ext=!!S.repExtra;const wk=S.repWork!==false;
   const fy=k=>fromKey(k).toLocaleDateString("es",{day:"numeric",month:"long",year:"numeric"});
   const title=S.view==="quincena"?"Reporte de asistencia quincenal":S.view==="mes"?"Reporte de asistencia mensual":S.view==="semana"?"Reporte de asistencia semanal":"Reporte de asistencia";
   const pages=S.report.ids.map(id=>{const e=emps(true).find(x=>x.id===id);if(!e)return"";const c=compOf(e)||{};
@@ -605,22 +607,24 @@ function rReport(){
     const rows=days.map(k=>{const st=status(e,k);const r=st.r;const sch=(e.schedule||{})[fromKey(k).getDay()];const lv=leaveOf(e.id,k);
       const w=r&&r.in&&r.out?hmin(Math.round((r.out-r.in)/60000)):"";
       const est=st.k==="future"?"—":st.k==="off"?"Libre":st.k==="flex"?"Opcional":st.t;
-      return`<tr><td style="text-align:left;text-transform:capitalize">${fromKey(k).toLocaleDateString("es",{weekday:"short",day:"numeric",month:"short"})}</td><td>${sch&&sch.on?t12(sch.start)+" – "+t12(sch.end):"—"}</td><td>${r&&r.in?hm(r.in):""}</td><td>${r&&r.out?hm(r.out):""}</td><td>${w}</td><td style="text-align:left">${esc(est)}${lv&&lv.reason?`<br><span style="font-size:11px;color:#555">${esc(lv.reason)}</span>`:""}</td></tr>`}).join("");
+      return`<tr><td style="text-align:left;text-transform:capitalize">${fromKey(k).toLocaleDateString("es",{weekday:"short",day:"numeric",month:"short"})}</td><td>${sch&&sch.on?t12(sch.start)+" – "+t12(sch.end):"—"}</td><td>${r&&r.in?hm(r.in):""}</td><td>${r&&r.out?hm(r.out):""}</td>${wk?`<td>${w}</td>`:""}<td style="text-align:left">${esc(est)}${lv&&lv.reason?`<br><span style="font-size:11px;color:#555">${esc(lv.reason)}</span>`:""}</td></tr>`}).join("");
     const box=(v,l)=>`<div><b>${v}</b><span>${l}</span></div>`;
     return`<section class="rep">
       <div class="rep-h"><div><div class="rep-co">${esc(c.name||"")}</div><h2>${title}</h2></div><div class="rep-d">Generado el ${fy(key(new Date()))}</div></div>
       <div class="rep-who"><div><span>Empleado</span><b>${esc(fullName(e))}</b></div><div><span>Período</span><b>Del ${fy(days[0])} al ${fy(days[days.length-1])}</b></div></div>
-      <div class="rep-sum">${box(m.days,"Días trabajados")}${box(m.late,"Llegadas tarde")}${box(m.lateMin?dur(m.lateMin):"0 min","Tiempo total tarde")}${box(m.abs+miss,"Faltas")}${box(hmin(m.work),"Horas trabajadas")}${ext?box(hmin(m.extra),"Horas extra"):""}</div>
+      <div class="rep-sum">${box(m.days,"Días trabajados")}${box(m.late,"Llegadas tarde")}${box(m.lateMin?dur(m.lateMin):"0 min","Tiempo total tarde")}${box(m.abs+miss,"Faltas")}${wk?box(hmin(m.work),"Horas trabajadas"):""}${ext?box(hmin(m.extra),"Horas extra"):""}</div>
       ${qi.length?`<p class="rep-note">${qi.map(x=>`${DAYS[x.dow]}s trabajados en el mes: ${Math.min(x.worked,x.quota)} de ${x.quota}`).join(" · ")}</p>`:""}
-      <table class="rep-t"><thead><tr><th style="text-align:left">Fecha</th><th>Horario</th><th>Entrada</th><th>Salida</th><th>Horas</th><th style="text-align:left">Estado</th></tr></thead><tbody>${rows}</tbody></table>
+      <table class="rep-t"><thead><tr><th style="text-align:left">Fecha</th><th>Horario</th><th>Entrada</th><th>Salida</th>${wk?"<th>Horas</th>":""}<th style="text-align:left">Estado</th></tr></thead><tbody>${rows}</tbody></table>
       <div class="rep-sign"><div>Firma del empleado</div><div>Firma del supervisor</div></div>
     </section>`}).join("");
   $("main").innerHTML=`<div class="noprint bar" style="margin-bottom:14px"><button class="btn ghost" id="rp-back">Volver al panel</button>
+    <label style="display:flex;gap:8px;align-items:center;margin:0;font-weight:500"><input type="checkbox" id="rp-wk" style="width:20px;height:20px" ${wk?"checked":""}>Incluir horas trabajadas</label>
     <label style="display:flex;gap:8px;align-items:center;margin:0;font-weight:500"><input type="checkbox" id="rp-ext" style="width:20px;height:20px" ${ext?"checked":""}>Incluir horas extra</label>
     <button class="btn" id="rp-print">Imprimir o guardar PDF</button></div>
     <p class="hint noprint" style="margin:-6px 0 14px">${S.report.ids.length>1?`Se imprimirá una página por empleado (${S.report.ids.length}). `:""}Para enviarlo por WhatsApp o correo, en la ventana de impresión elige "Guardar como PDF".</p>${pages}`;
   $("rp-back").onclick=()=>{S.report=null;rPanel()};
-  $("rp-ext").onchange=()=>{S.repExtra=$("rp-ext").checked;rReport()};
+  $("rp-ext").onchange=()=>{S.repExtra=$("rp-ext").checked;saveOpt();rReport()};
+  $("rp-wk").onchange=()=>{S.repWork=$("rp-wk").checked;saveOpt();rReport()};
   $("rp-print").onclick=()=>window.print();
 }
 
