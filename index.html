@@ -140,7 +140,7 @@ const firebaseConfig = {
   appId: "1:573447532024:web:ed9e2cfcc59ae996af3a0d"
 };
 /* =================================================== */
-const VERSION="V1.12";
+const VERSION="V1.13";
 // Mensaje de error con la causa real (permiso, conexión, etc.)
 function errTxt(err,base){const c=err&&err.code||"";
   if(c.includes("permission-denied"))return base+" Firebase lo rechazó por permisos: revisa que tu UID (al pie de la página) esté en las reglas de Firestore y que las reglas estén publicadas.";
@@ -625,7 +625,16 @@ function rReport(){
   $("rp-back").onclick=()=>{S.report=null;rPanel()};
   $("rp-ext").onchange=()=>{S.repExtra=$("rp-ext").checked;saveOpt();rReport()};
   $("rp-wk").onchange=()=>{S.repWork=$("rp-wk").checked;saveOpt();rReport()};
-  $("rp-print").onclick=()=>window.print();
+  $("rp-print").onclick=()=>{
+    // El navegador usa el título de la página como nombre del PDF
+    const dmy=k=>k.slice(8)+"-"+k.slice(5,7)+"-"+k.slice(0,4);
+    const one=S.report.ids.length===1?emps(true).find(x=>x.id===S.report.ids[0]):null;
+    const who=one?fullName(one):((compById(S.company)||{}).name||"Todos")+" - todos los empleados";
+    const name=`Asistencia - ${who} - del ${dmy(days[0])} al ${dmy(days[days.length-1])}`.replace(/[\\/:*?"<>|]/g,"");
+    const old=document.title;document.title=name;
+    const restore=()=>{document.title=old;window.removeEventListener("afterprint",restore)};
+    window.addEventListener("afterprint",restore);setTimeout(()=>window.print(),50);
+  };
 }
 
 /* ---------- Empleados (administrador) ---------- */
