@@ -29,7 +29,10 @@
 html{scroll-padding-top:env(safe-area-inset-top,0px)}
 *,*::before,*::after{box-sizing:inherit}
 body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 "Barlow",system-ui,-apple-system,"Segoe UI",sans-serif}
-.wrap{max-width:760px;margin:0 auto;padding:16px 16px 48px}
+.wrap{max-width:1600px;margin:0 auto;padding:16px clamp(16px,3vw,40px) 48px}
+.panel.stack{max-width:760px;margin-left:auto;margin-right:auto}
+body.narrow main,body.narrow footer{max-width:620px;margin-left:auto;margin-right:auto}
+@media (min-width:1000px){body{font-size:17px}header h1{font-size:24px}th,td{padding:9px 8px}}
 header{display:flex;justify-content:space-between;align-items:baseline;gap:12px;margin-bottom:12px}
 header h1{font:600 20px/1.2 "Barlow Semi Condensed",sans-serif;margin:0}
 header .who{font-size:13px;color:var(--muted)}
@@ -125,7 +128,7 @@ const firebaseConfig = {
   appId: "1:573447532024:web:ed9e2cfcc59ae996af3a0d"
 };
 /* =================================================== */
-const VERSION="V1.09";
+const VERSION="V1.10";
 // Mensaje de error con la causa real (permiso, conexión, etc.)
 function errTxt(err,base){const c=err&&err.code||"";
   if(c.includes("permission-denied"))return base+" Firebase lo rechazó por permisos: revisa que tu UID (al pie de la página) esté en las reglas de Firestore y que las reglas estén publicadas.";
@@ -318,6 +321,7 @@ function foot(){
   if(lb)lb.onclick=()=>{S.tab="marcar";render()};
 }
 function render(){
+  document.body.classList.toggle("narrow",S.tab==="marcar"||S.tab==="login");
   if(S.tab!=="marcar")geoStop();
   tabs();foot();ensureCompany();
   $("who").textContent=S.owner?"Administrador":"";
